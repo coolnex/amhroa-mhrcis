@@ -17,6 +17,12 @@
 /.next/
 /out/
 
+# .gitignore
+node_modules/
+.next/
+package-lock.json
+yarn.lock
+
 # production
 /build
 
