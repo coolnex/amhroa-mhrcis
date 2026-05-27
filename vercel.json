@@ -2,8 +2,8 @@
   "installCommand": "npm install --legacy-peer-deps",
   "buildCommand": "npm run build",
   "framework": "nextjs",
-  "regions": ["iad1"],
-  "github": {
-    "silent": true
+  "outputDirectory": ".next",
+  "git": {
+    "deploymentEnabled": true
   }
 }

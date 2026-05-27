@@ -1,35 +1,33 @@
 {
-  "name": "amhroa-mhrcis",
-  "version": "0.1.0",
+  "name": "amhroa-platform",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
+    "dev": "next dev",
     "build": "next build",
-    "install": "yarn install --ignore-engines"
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "@tailwindcss/line-clamp": "^0.4.4",
-    "bcryptjs": "^3.0.3",
-    "d3-scale": "^4.0.2",
-    "dotenv": "^17.4.2",
-    "formidable": "^3.5.4",
-    "jsonwebtoken": "^9.0.3",
-    "lucide-react": "^1.16.0",
-    "mysql2": "^3.22.3",
-    "next": "14.1.0",
+    "next": "14.0.4",
     "react": "18.2.0",
     "react-dom": "18.2.0",
+    "lucide-react": "^0.309.0",
+    "recharts": "^2.10.3",
     "react-simple-maps": "^3.0.0",
-    "recharts": "^3.8.1"
+    "d3-scale": "^4.0.2"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.6",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.17.0",
+    "npm": ">=9.0.0"
   }
 }
