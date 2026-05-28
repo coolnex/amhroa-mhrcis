@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, useState } from "react";
+import { useState } from "react";
 import {
   LayoutDashboard,
   Globe,
+  Activity,
   Map,
   BarChart3,
   Bot,
