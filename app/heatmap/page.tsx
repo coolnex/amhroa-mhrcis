@@ -309,8 +309,12 @@ export default function HeatmapPage() {
             >
               <ZoomableGroup zoom={position.zoom} center={position.coordinates as [number, number]}>
                 <Geographies geography={geoUrl}>
-                  {({ geographies }) =>
-                    geographies.map((geo) => {
+                {({
+                    geographies,
+                  }: {
+                    geographies: any[];
+                  }) =>
+                    geographies.map((geo: any) => {
                       const countryName = geo.properties.name;
                       const score = countryScores[countryName] || 0;
                       const fillColor = getScoreColor(score);
