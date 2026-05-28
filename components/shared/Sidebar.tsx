@@ -109,9 +109,21 @@ const USER_ROLE = "executive"; // Change this based on logged-in user
 interface SidebarProps {
   collapsed?: boolean;
   onToggle?: () => void;
+
+  variant?: string;
+  activeItem?: string;
+  userRole?: string;
+  userName?: string;
 }
 
-export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
+export default function Sidebar({
+  collapsed = false,
+  onToggle,
+  variant,
+  activeItem,
+  userRole,
+  userName,
+}: SidebarProps) {
   const pathname = usePathname();
   const [expandedGroups, setExpandedGroups] = useState<string[]>([
     "intelligence",
@@ -189,8 +201,13 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
               <span className="text-white font-bold text-sm">AD</span>
             </div>
             <div className="flex-1">
-              <p className="text-white text-sm font-semibold">Dr. Alagie Zakare</p>
-              <p className="text-slate-400 text-xs">Continental Policy Director</p>
+            <p className="text-white text-sm font-semibold">
+                {userName || "Dr. Alagie Zakare"}
+              </p>
+
+              <p className="text-slate-400 text-xs">
+                {userRole || "Continental Policy Director"}
+              </p>
             </div>
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
           </div>
@@ -256,7 +273,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                           title={collapsed ? link.name : undefined}
                         >
                           <LinkIcon
-                            className={`w-5 h-5 ${isActive ? "text-cyan-400" : ""}`} children={undefined}                          />
+                            className={`w-5 h-5 ${isActive ? "text-cyan-400" : ""}`}                        />
                           {!collapsed && (
                             <span className="text-sm font-medium">
                               {link.name}
@@ -306,21 +323,4 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       )}
     </aside>
   );
-}
-
-// Add this to your global CSS for custom scrollbar
-const scrollbarStyles = `
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: #1e293b;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #06b6d4;
-  border-radius: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #0891b2;
-}
-`;
+};
