@@ -1,4 +1,4 @@
-export { Sidebar } from "./Sidebar";
+export { default as Sidebar } from "./Sidebar";
 export { TopNavigation } from "./TopNavigation";
 export { AnalyticsCard } from "./AnalyticsCard";
 export { DataTable } from "./DataTable";
