@@ -1,9 +1,7 @@
 {
-  "installCommand": "npm ci --legacy-peer-deps || npm install --legacy-peer-deps",
-  "buildCommand": "npm run build",
+  "installCommand": "yarn install --ignore-engines --frozen-lockfile",
+  "buildCommand": "yarn build",
   "framework": "nextjs",
   "outputDirectory": ".next",
-  "environment": {
-    "NEXT_TELEMETRY_DISABLED": "1"
-  }
+  "regions": ["iad1"]
 }

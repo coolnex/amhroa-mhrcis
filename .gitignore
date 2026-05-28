@@ -18,6 +18,10 @@
 /out/
 
 # .gitignore
+node_modules
+.next
+.env.local
+
 node_modules/
 .next/
 out/
@@ -27,6 +31,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .vercel
+
 
 # production
 /build
@@ -52,4 +57,3 @@ yarn-error.log*
 next-env.d.ts
 package-lock.json
 yarn.lock
-package-lock.json
