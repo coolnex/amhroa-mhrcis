@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, useState } from "react";
+import { useState } from "react"; // Removed Activity from here
+import { Activity } from "lucide-react"; 
 import {
   LayoutDashboard,
   Globe,
