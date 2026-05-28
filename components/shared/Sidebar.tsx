@@ -72,6 +72,16 @@ const navigationGroups = {
       { name: "Rankings", href: "/rankings", icon: Trophy },
     ],
   },
+  dataCollection: {
+    label: "DATA COLLECTION",
+    icon: FileCheck,
+    roles: ["admin", "executive", "researcher", "coordinator"],
+    links: [
+      { name: "Submissions", href: "/submissions", icon: FileCheck },
+      { name: "Field Reports", href: "/field-reports", icon: Briefcase },
+      { name: "Survey Forms", href: "/survey-forms", icon: BookOpen },
+    ],
+  },
   repository: {
     label: "KNOWLEDGE REPOSITORY",
     icon: FolderGit2,

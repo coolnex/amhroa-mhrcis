@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useEffect } from "react";
 import {
   FileText,
@@ -22,6 +20,7 @@ import {
   TrendingUp,
   Shield,
   HelpCircle,
+  Globe,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -624,7 +623,10 @@ export default function SubmissionsPage() {
               <Bell className="w-8 h-8 text-cyan-400 mx-auto mb-2" />
               <p className="text-white text-sm font-medium">Need Assistance?</p>
               <p className="text-slate-400 text-xs mt-1">Contact the support team</p>
-              <button className="mt-3 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-cyan-400 text-sm transition-colors">
+              <button 
+                onClick={() => window.location.href = "mailto:support@amhroa.org"}
+                className="mt-3 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-cyan-400 text-sm transition-colors"
+              >
                 support@amhroa.org
               </button>
             </div>
