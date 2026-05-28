@@ -171,10 +171,10 @@ export default function Sidebar({
         {!collapsed ? (
           <>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              MHRCIS
+              AMHROA
             </h1>
             <p className="text-slate-400 text-xs mt-2 tracking-wide">
-              CONTINENTAL INTELLIGENCE PLATFORM
+            MHRCIS PAN-AFRICAN PLATFORM
             </p>
             <div className="mt-3 flex items-center gap-2 text-xs">
               <span className="px-2 py-0.5 bg-cyan-600/20 text-cyan-300 rounded-full border border-cyan-500/30">
