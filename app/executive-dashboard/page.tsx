@@ -155,20 +155,17 @@ export default function ExecutiveDashboardPage() {
 
   const fetchDashboard = async () => {
     setLoading(true);
+  
     try {
-      const response = await fetch("/api/executive-dashboard");
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.metrics) {
-          setDashboard(data);
-        } else {
-          setDashboard(mockDashboardData);
-        }
-      } else {
-        setDashboard(mockDashboardData);
-      }
+      // Simulate loading delay for realistic UI preview
+      await new Promise((resolve) => setTimeout(resolve, 800));
+  
+      // Use mock data directly instead of API/database
+      setDashboard(mockDashboardData);
     } catch (error) {
-      console.error("Error fetching dashboard:", error);
+      console.error("Error loading dashboard preview:", error);
+  
+      // Fallback mock data
       setDashboard(mockDashboardData);
     } finally {
       setLoading(false);

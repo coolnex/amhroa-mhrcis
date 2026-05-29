@@ -99,35 +99,130 @@ export default function AdminDashboard() {
   const [activityFeed, setActivityFeed] = useState<any[]>([]);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-
-    if (!storedUser) {
-      window.location.href = "/login";
-      return;
-    }
-
-    const parsedUser = JSON.parse(storedUser);
-
-    if (parsedUser.role !== "Admin") {
-      alert("Access denied. Admin privileges required.");
-      window.location.href = "/dashboard";
-      return;
-    }
-
-    setUser(parsedUser);
+    setUser({
+      full_name: "Continental Administrator",
+      role: "Admin",
+    });
     fetchAllData();
   }, []);
 
   const fetchAllData = async () => {
     setLoading(true);
-    await Promise.all([
-      fetchOrganizations(),
-      fetchUsers(),
-      fetchCoordinators(),
-      fetchGovernanceAlerts(),
-      fetchActivityFeed(),
-    ]);
-    setLoading(false);
+  
+    try {
+      // MOCK USERS
+      setUsers([
+        {
+          id: "1",
+          full_name: "Dr. Aisha Bello",
+          email: "aisha@amhroa.org",
+          role: "Policymaker",
+          status: "Approved",
+          created_at: "2026-05-01",
+          country: "Nigeria",
+          organization: "Federal Ministry of Health",
+        },
+        {
+          id: "2",
+          full_name: "John Mensah",
+          email: "john@researchhub.org",
+          role: "Researcher",
+          status: "Pending",
+          created_at: "2026-05-03",
+          country: "Ghana",
+          organization: "Research Hub Africa",
+        },
+        {
+          id: "3",
+          full_name: "Fatima Diallo",
+          email: "fatima@cso.org",
+          role: "CSO",
+          status: "Rejected",
+          created_at: "2026-05-04",
+          country: "Senegal",
+          organization: "Mental Health Africa",
+        },
+      ]);
+  
+      // MOCK ORGANIZATIONS
+      setOrganizations([
+        {
+          id: "1",
+          organization_name: "Mental Health Africa",
+          country: "Nigeria",
+          organization_type: "NGO",
+          email: "contact@mha.org",
+          status: "Pending",
+          created_at: "2026-05-01",
+        },
+        {
+          id: "2",
+          organization_name: "African Reform Initiative",
+          country: "Kenya",
+          organization_type: "Research",
+          email: "info@ari.org",
+          status: "Approved",
+          created_at: "2026-05-02",
+        },
+      ]);
+  
+      // MOCK COORDINATORS
+      setCoordinators([
+        {
+          id: "1",
+          name: "Dr. James Mwangi",
+          country: "Kenya",
+          assigned_regions: ["Nairobi", "Mombasa"],
+          status: "Active",
+        },
+        {
+          id: "2",
+          name: "Prof. Aisha Diallo",
+          country: "Nigeria",
+          assigned_regions: ["Lagos", "Abuja"],
+          status: "Active",
+        },
+      ]);
+  
+      // MOCK ALERTS
+      setAlerts([
+        {
+          id: "1",
+          type: "critical",
+          title: "System Implementation Gap",
+          message: "Nigeria reporting overdue by 14 days",
+          timestamp: "2026-05-15T10:30:00",
+          country: "Nigeria",
+        },
+        {
+          id: "2",
+          type: "warning",
+          title: "Pending Organization Review",
+          message: "12 organizations awaiting approval",
+          timestamp: "2026-05-15T09:15:00",
+        },
+      ]);
+  
+      // MOCK ACTIVITY FEED
+      setActivityFeed([
+        {
+          id: "1",
+          action: "User Approved",
+          target: "John Doe",
+          timestamp: "2026-05-15T11:23:00",
+        },
+        {
+          id: "2",
+          action: "Organization Registered",
+          target: "Mental Health Africa",
+          timestamp: "2026-05-15T10:45:00",
+        },
+      ]);
+    } catch (error) {
+      console.error("Error loading dashboard:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchOrganizations = async () => {
@@ -182,56 +277,38 @@ export default function AdminDashboard() {
     ]);
   };
 
-  const approveUser = async (userId: string) => {
-    try {
-      const response = await fetch("/api/users/approve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      if (response.ok) {
-        fetchUsers();
-        fetchActivityFeed();
-      }
-    } catch (error) {
-      console.error("Error approving user:", error);
-    }
+  const approveUser = (userId: string) => {
+    setUsers((prev) =>
+      prev.map((user) =>
+        user.id === userId
+          ? { ...user, status: "Approved" }
+          : user
+      )
+    );
   };
-
-  const rejectUser = async (userId: string) => {
-    try {
-      const response = await fetch("/api/users/reject", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      if (response.ok) {
-        fetchUsers();
-      }
-    } catch (error) {
-      console.error("Error rejecting user:", error);
-    }
+  
+  const rejectUser = (userId: string) => {
+    setUsers((prev) =>
+      prev.map((user) =>
+        user.id === userId
+          ? { ...user, status: "Rejected" }
+          : user
+      )
+    );
   };
-
-  const approveOrganization = async (orgId: string) => {
-    try {
-      const response = await fetch("/api/organizations/approve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organizationId: orgId }),
-      });
-      if (response.ok) {
-        fetchOrganizations();
-      }
-    } catch (error) {
-      console.error("Error approving organization:", error);
-    }
+  
+  const approveOrganization = (orgId: string) => {
+    setOrganizations((prev) =>
+      prev.map((org) =>
+        org.id === orgId
+          ? { ...org, status: "Approved" }
+          : org
+      )
+    );
   };
 
   const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    window.location.href = "/login";
+    alert("Preview Mode Logout");
   };
 
   const filteredUsers = users.filter(user => {
