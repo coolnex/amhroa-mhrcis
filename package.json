@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.1",
     "@tailwindcss/line-clamp": "^0.4.4",
     "bcryptjs": "^2.4.3",
     "d3-scale": "^4.0.2",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({
@@ -21,42 +22,50 @@ export default function LoginPage() {
     e: React.FormEvent<HTMLFormElement>
   ) => {
     e.preventDefault();
-
-    const response = await fetch("/api/login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(formData),
-    });
-
-    const data = await response.json();
-
-    if (data.success) {
-      // save token
-      localStorage.setItem("token", data.token);
-
-      // save user
-      localStorage.setItem(
-        "user",
-        JSON.stringify(data.user)
-      );
-
-      alert("Login successful");
-
-      if (data.user.role === "Admin") {
-        window.location.href = "/admin";
-      } else if (data.user.role === "Policymaker") {
-        window.location.href = "/policymaker";
-      } else if (data.user.role === "Researcher") {
-        window.location.href = "/researcher";
-      } else if (data.user.role === "CSO") {
-        window.location.href = "/cso";
-      } else {
-        window.location.href = "/public";
-      }
+  
+    const { data, error } =
+      await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+  
+    if (error) {
+      alert(error.message);
+      return;
+    }
+  
+    const { data: profile } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", data.user.id)
+      .single();
+  
+    if (!profile) {
+      alert("User profile not found");
+      return;
+    }
+  
+    localStorage.setItem(
+      "user",
+      JSON.stringify(profile)
+    );
+  
+    if (profile.role === "Admin") {
+      window.location.href = "/admin";
+    } else if (
+      profile.role === "Researcher"
+    ) {
+      window.location.href =
+        "/researcher";
+    } else if (
+      profile.role === "Policymaker"
+    ) {
+      window.location.href =
+        "/policymaker";
+    } else if (profile.role === "CSO") {
+      window.location.href = "/cso";
     } else {
-      alert(data.message);
+      window.location.href = "/";
     }
   };
 
