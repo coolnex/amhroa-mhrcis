@@ -65,7 +65,7 @@ export default function LoginPage() {
     } else if (profile.role === "CSO") {
       window.location.href = "/cso";
     } else {
-      window.location.href = "/";
+      window.location.href = "/public";
     }
   };
 
