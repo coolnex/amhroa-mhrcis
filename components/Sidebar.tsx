@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react"; 
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   Globe,
@@ -22,6 +22,10 @@ import {
   Crown,
   ChevronLeft,
   ChevronRight,
+  FolderOpen,
+  Database,
+  FileText,
+  ClipboardList,
   ChevronDown,
   ChevronUp,
   Users,
@@ -31,25 +35,55 @@ import {
   Briefcase,
   Eye,
   AlertTriangle,
+  LogOut,
+  Heart,
 } from "lucide-react";
 
-// Role-based navigation groups
+// User role types
+type UserRole = "admin" | "policymaker" | "researcher" | "cso" | "coordinator" | "donor" | "mental_health_professional" | "public";
+
+// Role display names
+const roleDisplayNames: Record<UserRole, string> = {
+  admin: "System Administrator",
+  policymaker: "Policy Director",
+  researcher: "Research Lead",
+  cso: "CSO Director",
+  coordinator: "Country Coordinator",
+  donor: "Investment Director",
+  mental_health_professional: "Mental Health Professional",
+  public: "Public User",
+};
+
+// Role badges
+const roleBadges: Record<UserRole, { color: string; bg: string }> = {
+  admin: { color: "text-purple-400", bg: "bg-purple-500/20" },
+  policymaker: { color: "text-cyan-400", bg: "bg-cyan-500/20" },
+  researcher: { color: "text-blue-400", bg: "bg-blue-500/20" },
+  cso: { color: "text-emerald-400", bg: "bg-emerald-500/20" },
+  coordinator: { color: "text-orange-400", bg: "bg-orange-500/20" },
+  donor: { color: "text-yellow-400", bg: "bg-yellow-500/20" },
+  mental_health_professional: { color: "text-pink-400", bg: "bg-pink-500/20" },
+  public: { color: "text-slate-400", bg: "bg-slate-500/20" },
+};
+
+// Navigation groups with role-based access
 const navigationGroups = {
   continental: {
     label: "CONTINENTAL OVERSIGHT",
     icon: Globe,
-    roles: ["admin", "executive"],
+    roles: ["admin"],
     links: [
       { name: "Executive Dashboard", href: "/executive-dashboard", icon: Crown },
       { name: "Admin Panel", href: "/admin", icon: Shield },
       { name: "System Health", href: "/system-health", icon: Activity },
       { name: "Governance Alerts", href: "/governance-alerts", icon: AlertTriangle },
+      { name: "Research Library", href: "/research-library", icon: Bot },
     ],
   },
   intelligence: {
     label: "INTELLIGENCE HUB",
     icon: TrendingUp,
-    roles: ["admin", "policymaker", "donor", "executive"],
+    roles: ["admin", "policymaker", "donor", "researcher", "mental_health_professional"],
     links: [
       { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
       { name: "Analytics", href: "/analytics", icon: BarChart3 },
@@ -64,7 +98,7 @@ const navigationGroups = {
   analysis: {
     label: "COMPARATIVE ANALYSIS",
     icon: GitCompare,
-    roles: ["admin", "policymaker", "researcher", "executive"],
+    roles: ["admin", "policymaker", "researcher", "mental_health_professional"],
     links: [
       { name: "Countries", href: "/countries", icon: Globe },
       { name: "Heatmap", href: "/heatmap", icon: Map },
@@ -75,7 +109,7 @@ const navigationGroups = {
   repository: {
     label: "KNOWLEDGE REPOSITORY",
     icon: FolderGit2,
-    roles: ["admin", "researcher", "cso", "coordinator"],
+    roles: ["admin", "researcher", "cso", "coordinator", "mental_health_professional"],
     links: [
       { name: "Repository", href: "/repository", icon: FolderGit2 },
       { name: "Submissions", href: "/submissions", icon: FileCheck },
@@ -84,27 +118,34 @@ const navigationGroups = {
   collaboration: {
     label: "COLLABORATION",
     icon: Handshake,
-    roles: ["cso", "coordinator", "researcher"],
+    roles: ["cso", "coordinator", "researcher", "mental_health_professional"],
     links: [
-      { name: "CSO Network", href: "/cso-network", icon: Building2 },
+      { name: "Organizations", href: "/organizations", icon: Building2 },
       { name: "Research Hub", href: "/research-hub", icon: BookOpen },
       { name: "Coalitions", href: "/coalitions", icon: Users },
     ],
   },
-  public: {
-    label: "PUBLIC PORTAL",
-    icon: Eye,
-    roles: ["public"],
+  datacollection: {
+    label: "DATA COLLECTION",
+    icon: Database,
+    roles: ["admin", "researcher", "cso", "coordinator", "mental_health_professional"],
     links: [
-      { name: "Public Dashboard", href: "/public", icon: Eye },
-      { name: "Country Profiles", href: "/public/countries", icon: Globe },
-      { name: "Educational Resources", href: "/public/resources", icon: BookOpen },
+      { name: "Submit Report", href: "/data-collection/submit-report", icon: FileText },
+      { name: "Field Reports", href: "/data-collection/field-reports", icon: AlertTriangle },
+      { name: "Surveys", href: "/data-collection/surveys", icon: ClipboardList },
+      { name: "My Submissions", href: "/data-collection/submissions", icon: FolderOpen },
     ],
   },
 };
 
-// Mock user role - would come from auth context
-const USER_ROLE = "executive"; // Change this based on logged-in user
+// Public portal links (no sidebar needed)
+const publicLinks = [
+  { name: "Home", href: "/", icon: Heart },
+  { name: "About", href: "/about", icon: Globe },
+  { name: "Reports", href: "/reports", icon: FileText },
+  { name: "Resources", href: "/resources", icon: BookOpen },
+  { name: "Contact", href: "/contact", icon: Mail },
+];
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -113,10 +154,64 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [userRole, setUserRole] = useState<UserRole>("public");
+  const [userName, setUserName] = useState<string>("");
+  const [userEmail, setUserEmail] = useState<string>("");
   const [expandedGroups, setExpandedGroups] = useState<string[]>([
     "intelligence",
     "analysis",
   ]);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    checkUserSession();
+  }, []);
+
+  const checkUserSession = async () => {
+    try {
+      // Check localStorage first
+      const storedUser = localStorage.getItem("user");
+      if (storedUser) {
+        const user = JSON.parse(storedUser);
+        const role = (user.role?.toLowerCase() || "public") as UserRole;
+        setUserRole(role);
+        setUserName(user.full_name || user.name || "");
+        setUserEmail(user.email || "");
+        setIsAuthenticated(true);
+        return;
+      }
+
+      // If no user in localStorage, check for public access
+      const isPublicRoute = pathname === "/" || 
+                           pathname === "/about" || 
+                           pathname === "/contact" ||
+                           pathname.startsWith("/public");
+      
+      if (!isPublicRoute) {
+        // Redirect to login if trying to access protected route
+        router.push("/login");
+      }
+    } catch (error) {
+      console.error("Error checking user session:", error);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    router.push("/login");
+  };
+
+  // Filter groups based on user role
+  const visibleGroups = Object.entries(navigationGroups).filter(
+    ([_, group]) => group.roles.includes(userRole)
+  );
+
+  const isActiveLink = (href: string) => {
+    if (href === "/dashboard") return pathname === "/dashboard";
+    return pathname.startsWith(href);
+  };
 
   const toggleGroup = (groupKey: string) => {
     setExpandedGroups((prev) =>
@@ -126,21 +221,27 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
     );
   };
 
-  // Filter groups based on user role
-  const visibleGroups = Object.entries(navigationGroups).filter(
-    ([_, group]) => group.roles.includes(USER_ROLE)
-  );
+  // Don't render sidebar for public users
+  if (!isAuthenticated || userRole === "public") {
+    return null;
+  }
 
-  const isActiveLink = (href: string) => {
-    if (href === "/dashboard") return pathname === "/dashboard";
-    return pathname.startsWith(href);
+  const roleBadge = roleBadges[userRole] || roleBadges.public;
+  const roleDisplay = roleDisplayNames[userRole] || "User";
+
+  // Get user initials for avatar
+  const getUserInitials = () => {
+    if (userName) {
+      return userName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+    }
+    return roleDisplay.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
   };
 
   return (
     <aside
       className={`relative bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 text-white transition-all duration-300 ${
         collapsed ? "w-20" : "w-80"
-      } min-h-screen flex flex-col shadow-2xl border-r border-slate-700/50`}
+      } min-h-screen flex flex-col shadow-2xl border-r border-slate-700/50 z-50`}
     >
       {/* Toggle Button */}
       <button
@@ -162,7 +263,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
               AMHROA
             </h1>
             <p className="text-slate-400 text-xs mt-2 tracking-wide">
-              MHRCIS CONTINENTAL INTELLIGENCE PLATFORM
+              MENTAL HEALTH REFORM INTELLIGENCE
             </p>
             <div className="mt-3 flex items-center gap-2 text-xs">
               <span className="px-2 py-0.5 bg-cyan-600/20 text-cyan-300 rounded-full border border-cyan-500/30">
@@ -175,22 +276,24 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           </>
         ) : (
           <div className="flex flex-col items-center">
-            <Crown className="w-8 h-8 text-cyan-400" />
+            <Heart className="w-8 h-8 text-cyan-400" />
             <div className="w-6 h-0.5 bg-cyan-500/50 mt-2"></div>
           </div>
         )}
       </div>
 
-      {/* User Role Indicator (Executive Style) */}
+      {/* User Role Indicator */}
       {!collapsed && (
         <div className="mx-4 mt-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">AD</span>
+            <div className={`w-10 h-10 rounded-full ${roleBadge.bg} flex items-center justify-center`}>
+              <span className={`text-white font-bold text-sm ${roleBadge.color}`}>
+                {getUserInitials()}
+              </span>
             </div>
             <div className="flex-1">
-              <p className="text-white text-sm font-semibold">Dr. Alagie Zakare</p>
-              <p className="text-slate-400 text-xs">Continental Policy Director</p>
+              <p className="text-white text-sm font-semibold truncate">{userName || roleDisplay}</p>
+              <p className={`text-xs ${roleBadge.color}`}>{roleDisplay}</p>
             </div>
             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
           </div>
@@ -242,11 +345,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                           href={link.href}
                           className={`
                             flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200
-                            ${
-                              collapsed
-                                ? "justify-center"
-                                : "justify-start"
-                            }
+                            ${collapsed ? "justify-center" : "justify-start"}
                             ${
                               isActive
                                 ? "bg-gradient-to-r from-cyan-600/20 to-blue-600/20 border border-cyan-500/30 text-cyan-300 shadow-lg"
@@ -255,8 +354,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                           `}
                           title={collapsed ? link.name : undefined}
                         >
-                          <LinkIcon
-                            className={`w-5 h-5 ${isActive ? "text-cyan-400" : ""}`} children={undefined}                          />
+                          <LinkIcon className={`w-5 h-5 ${isActive ? "text-cyan-400" : ""}`} />
                           {!collapsed && (
                             <span className="text-sm font-medium">
                               {link.name}
@@ -276,7 +374,20 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         </div>
       </nav>
 
-      {/* Footer Stats (Executive Style) */}
+      {/* Logout Button */}
+      <div className="p-4 border-t border-slate-700/50">
+        <button
+          onClick={handleLogout}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 text-slate-300 hover:bg-red-600/20 hover:text-red-400 ${
+            collapsed ? "justify-center" : "justify-start"
+          }`}
+        >
+          <LogOut className="w-5 h-5" />
+          {!collapsed && <span className="text-sm font-medium">Logout</span>}
+        </button>
+      </div>
+
+      {/* Footer Stats */}
       {!collapsed && (
         <div className="p-4 border-t border-slate-700/50 space-y-2">
           <div className="flex justify-between text-xs">
@@ -308,8 +419,11 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   );
 }
 
-// Add this to your global CSS for custom scrollbar
-const scrollbarStyles = `
+// Add missing import for Mail
+import { Mail } from "lucide-react";
+
+// CSS for custom scrollbar (add to your global CSS file)
+export const scrollbarStyles = `
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }

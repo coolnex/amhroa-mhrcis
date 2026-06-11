@@ -1,5 +1,6 @@
 "use client";
 
+import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 import {
   FileText,
@@ -42,8 +43,8 @@ interface RecentSubmission {
   title: string;
   report_type: string;
   country: string;
-  status: "Pending" | "Under Review" | "Approved" | "Rejected";
-  submitted_at: string;
+  status: "Pending" | "Approved" | "Rejected";
+  created_at: string;
 }
 
 const countries = [
@@ -103,23 +104,51 @@ export default function SubmissionsPage() {
   useEffect(() => {
     fetchRecentSubmissions();
   }, []);
-
+  useEffect(() => {
+    loadUser();
+  }, []);
+  
+  const loadUser = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+  
+    if (!user) return;
+  
+    setFormData((prev) => ({
+      ...prev,
+      submitted_by:
+        user.user_metadata?.full_name ||
+        user.email ||
+        "",
+      submitted_by_role:
+        user.user_metadata?.role ||
+        "Researcher",
+    }));
+  };
   const fetchRecentSubmissions = async () => {
     setLoadingSubmissions(true);
     try {
-      const response = await fetch("/api/reports/recent");
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.submissions) {
-          setRecentSubmissions(data.submissions);
-        } else {
-          // Mock data
-          setRecentSubmissions([
-            { id: "1", title: "Q4 2024 Reform Progress", report_type: "Country Progress Report", country: "Kenya", status: "Under Review", submitted_at: new Date().toISOString() },
-            { id: "2", title: "Mental Health Act Implementation", report_type: "Impact Assessment", country: "Nigeria", status: "Pending", submitted_at: new Date(Date.now() - 86400000).toISOString() },
-            { id: "3", title: "Workforce Capacity Assessment", report_type: "Research Paper", country: "South Africa", status: "Approved", submitted_at: new Date(Date.now() - 172800000).toISOString() },
-          ]);
-        }
+      const {
+        data: authData
+      } = await supabase.auth.getUser();
+      
+      const { data, error } =
+      await supabase
+      .from("submissions")
+      .select("*")
+      .eq(
+        "user_id",
+        authData.user?.id
+      )
+      .order(
+        "created_at",
+        { ascending: false }
+      )
+      .limit(5);
+      
+      if (!error) {
+        setRecentSubmissions(data);
       }
     } catch (error) {
       console.error("Error fetching recent submissions:", error);
@@ -173,89 +202,153 @@ export default function SubmissionsPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (
+    e: React.FormEvent<HTMLFormElement>
+  ) => {
     e.preventDefault();
+  
     setSubmitting(true);
     setUploadProgress(0);
-
+  
     try {
-      let uploadedFileUrl = "";
-
-      // File upload with progress simulation
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+  
+      if (!user) {
+        alert("Please login first");
+        return;
+      }
+  
+      let fileUrl = "";
+  
       if (file) {
-        const uploadData = new FormData();
-        uploadData.append("file", file);
-
-        // Simulate upload progress
-        const progressInterval = setInterval(() => {
-          setUploadProgress(prev => Math.min(prev + 10, 90));
-        }, 200);
-
-        const uploadResponse = await fetch("/api/upload", {
-          method: "POST",
-          body: uploadData,
-        });
-
-        clearInterval(progressInterval);
-        setUploadProgress(100);
-
-        const uploadResult = await uploadResponse.json();
-        if (uploadResult.success) {
-          uploadedFileUrl = uploadResult.fileUrl;
-        } else {
-          throw new Error("File upload failed");
+        const allowedTypes = [
+          "application/pdf",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ];
+  
+        if (!allowedTypes.includes(file.type)) {
+          alert("Only PDF, DOC and DOCX files are allowed");
+          return;
         }
+  
+        if (file.size > 25 * 1024 * 1024) {
+          alert("File size must not exceed 25MB");
+          return;
+        }
+  
+        const filename =
+          `${user.id}/${Date.now()}-${file.name}`;
+  
+        setUploadProgress(20);
+  
+        const { data, error } =
+          await supabase.storage
+            .from("reports")
+            .upload(filename, file);
+  
+        if (error) throw error;
+  
+        setUploadProgress(80);
+  
+        const { data: publicData } =
+          supabase.storage
+            .from("reports")
+            .getPublicUrl(data.path);
+  
+        fileUrl = publicData.publicUrl;
+  
+        setUploadProgress(100);
       }
-
-      // Report submission
-      const response = await fetch("/api/reports", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...formData,
-          file_url: uploadedFileUrl,
-          submitted_at: new Date().toISOString(),
-        }),
+  
+      const { error } =
+        await supabase
+          .from("submissions")
+          .insert([
+            {
+              user_id: user.id,
+  
+              title: formData.title,
+              description:
+                formData.description,
+  
+              country: formData.country,
+  
+              report_type:
+                formData.report_type,
+  
+              submitted_by:
+                formData.submitted_by,
+  
+              submitted_by_role:
+                formData.submitted_by_role,
+  
+              priority:
+                formData.priority,
+  
+              sdg_alignment:
+                formData.sdg_alignment,
+  
+              file_url: fileUrl,
+  
+              status: "Pending",
+            },
+          ]);
+  
+      if (error) throw error;
+  
+      setShowSuccess(true);
+  
+      setFormData({
+        country: "",
+        submitted_by:
+          formData.submitted_by,
+        submitted_by_role:
+          formData.submitted_by_role,
+        report_type: "",
+        title: "",
+        description: "",
+        priority: "Medium",
+        sdg_alignment: [],
       });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setShowSuccess(true);
-        // Reset form
-        setFormData({
-          country: "",
-          submitted_by: "",
-          submitted_by_role: "",
-          report_type: "",
-          title: "",
-          description: "",
-          priority: "Medium",
-          sdg_alignment: [],
-        });
-        setFile(null);
-        setUploadProgress(0);
-        fetchRecentSubmissions();
-        
-        setTimeout(() => setShowSuccess(false), 5000);
-      } else {
-        alert(data.message || "Submission failed. Please try again.");
-      }
+  
+      setFile(null);
+  
+      fetchRecentSubmissions();
+  
+      setTimeout(() => {
+        setShowSuccess(false);
+      }, 5000);
+  
     } catch (error) {
-      console.error("Error submitting report:", error);
-      alert("Submission failed. Please check your connection and try again.");
+      console.error(error);
+  
+      alert(
+        "Submission failed. Please try again."
+      );
     } finally {
       setSubmitting(false);
+      setUploadProgress(0);
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (
+    status: string
+  ) => {
     switch (status) {
-      case "Approved": return "bg-emerald-500/20 text-emerald-400";
-      case "Under Review": return "bg-cyan-500/20 text-cyan-400";
-      case "Pending": return "bg-yellow-500/20 text-yellow-400";
-      case "Rejected": return "bg-red-500/20 text-red-400";
-      default: return "bg-slate-500/20 text-slate-400";
+      case "Approved":
+        return "bg-green-500/20 text-green-400 border border-green-500/30";
+  
+      case "Pending":
+        return "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30";
+  
+      case "Rejected":
+        return "bg-red-500/20 text-red-400 border border-red-500/30";
+  
+      default:
+        return "bg-slate-500/20 text-slate-400";
     }
   };
 
@@ -395,7 +488,7 @@ export default function SubmissionsPage() {
                     <input
                       type="text"
                       name="submitted_by"
-                      value={formData.submitted_by}
+                      value={formData.submitted_by_role}
                       onChange={handleChange}
                       required
                       placeholder="Your full name"
@@ -584,7 +677,7 @@ export default function SubmissionsPage() {
                       </div>
                       <p className="text-slate-500 text-xs mt-2 flex items-center gap-1">
                         <Calendar className="w-3 h-3" />
-                        {new Date(sub.submitted_at).toLocaleDateString()}
+                        {new Date(sub.created_at).toLocaleDateString()}
                       </p>
                     </div>
                   ))}

@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useState,
-} from "react";
-
+import { useEffect, useState } from "react";
 import {
   Globe,
   ShieldAlert,
@@ -14,526 +10,528 @@ import {
   BrainCircuit,
   Landmark,
   BadgeDollarSign,
+  Award,
+  Target,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Users,
+  Building2,
+  Calendar,
+  Download,
+  RefreshCw,
+  Eye,
+  ChevronRight,
+  Flame,
+  Zap,
+  Leaf,
+  BarChart3,
+  PieChart,
+  LineChart,
+  ArrowUpRight,
+  ArrowDownRight,
 } from "lucide-react";
+import Link from "next/link";
+
+interface ExecutiveDashboardData {
+  metrics: {
+    totalCountries: number;
+    avgReformScore: number;
+    avgSDG3: number;
+    highPriority: number;
+    avgWorkforceScore: number;
+    avgFinancingScore: number;
+    totalOrganizations: number;
+    activeCoordinators: number;
+    reportsThisMonth: number;
+  };
+  countries: Array<{
+    id: number;
+    country_name: string;
+    region: string;
+    reform_score: number;
+    reform_tier: string;
+    priority_level: "High Priority" | "Medium Priority" | "Low Priority";
+    sdg3_score: number;
+    workforce_score: number;
+    financing_score: number;
+    implementation_status: string;
+    population: number;
+  }>;
+  reports: Array<{
+    id: number;
+    title: string;
+    country: string;
+    submitted_at: string;
+    status: string;
+  }>;
+  aiInsights: {
+    summary: string;
+    riskAlert: string;
+    opportunity: string;
+    recommendation: string;
+  };
+  trends: {
+    reformProgress: number;
+    sdgProgress: number;
+    implementationGap: number;
+  };
+}
+
+// Mock data for demonstration
+const mockDashboardData: ExecutiveDashboardData = {
+  metrics: {
+    totalCountries: 54,
+    avgReformScore: 55,
+    avgSDG3: 52,
+    highPriority: 32,
+    avgWorkforceScore: 42,
+    avgFinancingScore: 38,
+    totalOrganizations: 245,
+    activeCoordinators: 42,
+    reportsThisMonth: 28,
+  },
+  countries: [
+    { id: 1, country_name: "Mauritius", region: "Island States", reform_score: 85, reform_tier: "Tier 4 - Moderate Systems", priority_level: "Low Priority", sdg3_score: 88, workforce_score: 75, financing_score: 82, implementation_status: "Partial", population: 1.3 },
+    { id: 2, country_name: "South Africa", region: "Southern Africa", reform_score: 81, reform_tier: "Tier 4 - Moderate Systems", priority_level: "Medium Priority", sdg3_score: 78, workforce_score: 75, financing_score: 70, implementation_status: "Partial", population: 60.1 },
+    { id: 3, country_name: "Rwanda", region: "East Africa", reform_score: 77, reform_tier: "Tier 2 - Law Exists", priority_level: "Medium Priority", sdg3_score: 75, workforce_score: 70, financing_score: 68, implementation_status: "Partial", population: 13.3 },
+    { id: 4, country_name: "Kenya", region: "East Africa", reform_score: 74, reform_tier: "Tier 2 - Law Exists", priority_level: "High Priority", sdg3_score: 72, workforce_score: 65, financing_score: 60, implementation_status: "Partial", population: 53.8 },
+    { id: 5, country_name: "Ghana", region: "West Africa", reform_score: 68, reform_tier: "Tier 2 - Law Exists", priority_level: "High Priority", sdg3_score: 70, workforce_score: 58, financing_score: 55, implementation_status: "Minimal", population: 32.8 },
+    { id: 6, country_name: "Nigeria", region: "West Africa", reform_score: 62, reform_tier: "Tier 2 - Law Exists", priority_level: "High Priority", sdg3_score: 58, workforce_score: 45, financing_score: 40, implementation_status: "Minimal", population: 218.6 },
+    { id: 7, country_name: "DR Congo", region: "Central Africa", reform_score: 16, reform_tier: "Tier 1 - System Failure", priority_level: "High Priority", sdg3_score: 15, workforce_score: 10, financing_score: 5, implementation_status: "None", population: 89.6 },
+    { id: 8, country_name: "Somalia", region: "East Africa", reform_score: 12, reform_tier: "Tier 1 - System Failure", priority_level: "High Priority", sdg3_score: 10, workforce_score: 8, financing_score: 3, implementation_status: "None", population: 15.9 },
+  ],
+  reports: [
+    { id: 1, title: "Q4 2024 Reform Progress Report", country: "Kenya", submitted_at: "2024-03-15", status: "Under Review" },
+    { id: 2, title: "Mental Health Act Implementation Assessment", country: "Nigeria", submitted_at: "2024-03-14", status: "Pending" },
+    { id: 3, title: "Workforce Capacity Study", country: "South Africa", submitted_at: "2024-03-12", status: "Approved" },
+  ],
+  aiInsights: {
+    summary: "Continental reform progress shows +8% year-over-year growth with East Africa leading implementation acceleration.",
+    riskAlert: "Multiple countries remain without fully operational mental health legislation and implementation frameworks.",
+    opportunity: "Community workforce expansion and suicide decriminalization reforms present high-impact donor opportunities.",
+    recommendation: "Prioritize technical assistance for Tier 1 and Tier 2 countries to accelerate implementation.",
+  },
+  trends: {
+    reformProgress: 8,
+    sdgProgress: 5,
+    implementationGap: 65,
+  },
+};
+
+const getPriorityConfig = (priority: string) => {
+  switch (priority) {
+    case "High Priority": return { icon: Flame, color: "text-red-400", bg: "bg-red-500/20", border: "border-red-500/30", label: "High Priority" };
+    case "Medium Priority": return { icon: Zap, color: "text-yellow-400", bg: "bg-yellow-500/20", border: "border-yellow-500/30", label: "Medium Priority" };
+    default: return { icon: Leaf, color: "text-emerald-400", bg: "bg-emerald-500/20", border: "border-emerald-500/30", label: "Low Priority" };
+  }
+};
+
+const getScoreColor = (score: number) => {
+  if (score >= 80) return "text-emerald-400";
+  if (score >= 70) return "text-cyan-400";
+  if (score >= 60) return "text-blue-400";
+  if (score >= 50) return "text-yellow-400";
+  if (score >= 40) return "text-orange-400";
+  return "text-red-400";
+};
 
 export default function ExecutiveDashboardPage() {
-
-  const [dashboard, setDashboard] =
-    useState<any>(null);
+  const [dashboard, setDashboard] = useState<ExecutiveDashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedMetric, setSelectedMetric] = useState<string>("all");
+  const [lastUpdated, setLastUpdated] = useState<string>("");
 
   useEffect(() => {
-
     fetchDashboard();
-
+    setLastUpdated(new Date().toLocaleString());
   }, []);
 
   const fetchDashboard = async () => {
-
+    setLoading(true);
     try {
-
-      const response =
-        await fetch(
-          "/api/executive-dashboard"
-        );
-
-      const data =
-        await response.json();
-
-      if (data.success) {
-
-        setDashboard(data);
-
+      const response = await fetch("/api/executive-dashboard");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.metrics) {
+          setDashboard(data);
+        } else {
+          setDashboard(mockDashboardData);
+        }
+      } else {
+        setDashboard(mockDashboardData);
       }
-
     } catch (error) {
-
-      console.log(error);
-
+      console.error("Error fetching dashboard:", error);
+      setDashboard(mockDashboardData);
+    } finally {
+      setLoading(false);
     }
-
   };
 
-  if (!dashboard) {
+  const topCountries = dashboard?.countries
+    ? [...dashboard.countries].sort((a, b) => b.reform_score - a.reform_score).slice(0, 5)
+    : [];
+  
+  const priorityCountries = dashboard?.countries.filter(
+    (country) => country.priority_level === "High Priority"
+  ) || [];
 
+  const getTrendIcon = (value: number) => {
+    if (value > 0) return <ArrowUpRight className="w-4 h-4 text-emerald-400" />;
+    if (value < 0) return <ArrowDownRight className="w-4 h-4 text-red-400" />;
+    return null;
+  };
+
+  if (loading) {
     return (
-      <main className="min-h-screen bg-slate-100 flex items-center justify-center">
-
-        <div className="bg-white p-10 rounded-3xl shadow-xl text-center">
-
-          <Activity className="w-14 h-14 mx-auto text-cyan-600 animate-pulse" />
-
-          <h2 className="text-2xl font-bold mt-5">
-            Loading Continental Intelligence...
-          </h2>
-
-          <p className="text-slate-500 mt-3">
-            Initializing executive governance systems.
-          </p>
-
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-300">Loading Continental Intelligence...</p>
         </div>
-
-      </main>
+      </div>
     );
-
   }
 
-  const topCountries =
-    [...dashboard.countries]
-      .sort(
-        (a: any, b: any) =>
-          b.reform_score - a.reform_score
-      )
-      .slice(0, 5);
-
-  const priorityCountries =
-    dashboard.countries.filter(
-      (country: any) =>
-        country.priority_level ===
-        "High Priority"
-    );
+  if (!dashboard) return null;
 
   return (
-
-    <main className="min-h-screen bg-slate-100 p-6 lg:p-10">
-
-      <div className="max-w-7xl mx-auto">
-
-        {/* HERO HEADER */}
-        <div className="bg-gradient-to-r from-slate-900 to-cyan-900 text-white rounded-3xl p-10 shadow-2xl mb-10 relative overflow-hidden">
-
-          <div className="absolute top-0 right-0 opacity-10 text-[180px] font-black">
-            AFRICA
-          </div>
-
-          <div className="relative z-10">
-
-            <div className="flex items-center gap-4 mb-6">
-
-              <div className="bg-white/10 p-4 rounded-2xl">
-                <Globe className="w-10 h-10" />
-              </div>
-
-              <div>
-                <h1 className="text-4xl lg:text-5xl font-black">
-                  Executive Continental Command Center
-                </h1>
-
-                <p className="text-cyan-100 mt-3 text-lg max-w-4xl">
-                  Unified Pan-African mental health reform intelligence, governance analytics,
-                  SDG monitoring, donor intelligence, and AI-assisted policy insights.
-                </p>
-              </div>
-
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
-
-              <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
-                <p className="text-cyan-100 text-sm">
-                  Active Countries
-                </p>
-                <h3 className="text-3xl font-black mt-2">
-                  {dashboard.metrics.totalCountries}
-                </h3>
-              </div>
-
-              <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
-                <p className="text-cyan-100 text-sm">
-                  Avg Reform Score
-                </p>
-                <h3 className="text-3xl font-black mt-2">
-                  {dashboard.metrics.avgReformScore}%
-                </h3>
-              </div>
-
-              <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
-                <p className="text-cyan-100 text-sm">
-                  Avg SDG 3 Score
-                </p>
-                <h3 className="text-3xl font-black mt-2">
-                  {dashboard.metrics.avgSDG3}%
-                </h3>
-              </div>
-
-              <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
-                <p className="text-cyan-100 text-sm">
-                  High Priority States
-                </p>
-                <h3 className="text-3xl font-black mt-2 text-red-300">
-                  {dashboard.metrics.highPriority}
-                </h3>
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-        {/* KPI GRID */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-
-          {/* REFORM */}
-          <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-200">
-
-            <div className="flex items-center justify-between">
-
-              <div>
-                <p className="text-slate-500 text-sm uppercase tracking-wide">
-                  Reform Intelligence
-                </p>
-
-                <h2 className="text-4xl font-black mt-4 text-cyan-700">
-                  {dashboard.metrics.avgReformScore}%
-                </h2>
-              </div>
-
-              <div className="bg-cyan-100 p-4 rounded-2xl">
-                <TrendingUp className="w-8 h-8 text-cyan-700" />
-              </div>
-
-            </div>
-
-          </div>
-
-          {/* SDG */}
-          <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-200">
-
-            <div className="flex items-center justify-between">
-
-              <div>
-                <p className="text-slate-500 text-sm uppercase tracking-wide">
-                  SDG Governance
-                </p>
-
-                <h2 className="text-4xl font-black mt-4 text-green-700">
-                  {dashboard.metrics.avgSDG3}%
-                </h2>
-              </div>
-
-              <div className="bg-green-100 p-4 rounded-2xl">
-                <Landmark className="w-8 h-8 text-green-700" />
-              </div>
-
-            </div>
-
-          </div>
-
-          {/* PRIORITY */}
-          <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-200">
-
-            <div className="flex items-center justify-between">
-
-              <div>
-                <p className="text-slate-500 text-sm uppercase tracking-wide">
-                  Risk Alerts
-                </p>
-
-                <h2 className="text-4xl font-black mt-4 text-red-600">
-                  {dashboard.metrics.highPriority}
-                </h2>
-              </div>
-
-              <div className="bg-red-100 p-4 rounded-2xl">
-                <ShieldAlert className="w-8 h-8 text-red-600" />
-              </div>
-
-            </div>
-
-          </div>
-
-          {/* DONOR */}
-          <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-200">
-
-            <div className="flex items-center justify-between">
-
-              <div>
-                <p className="text-slate-500 text-sm uppercase tracking-wide">
-                  Investment Readiness
-                </p>
-
-                <h2 className="text-4xl font-black mt-4 text-amber-600">
-                  72%
-                </h2>
-              </div>
-
-              <div className="bg-amber-100 p-4 rounded-2xl">
-                <BadgeDollarSign className="w-8 h-8 text-amber-700" />
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-        {/* MAIN CONTENT */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-10">
-
-          {/* TOP COUNTRIES */}
-          <div className="lg:col-span-2 bg-white rounded-3xl p-8 shadow-xl">
-
-            <div className="flex items-center justify-between mb-8">
-
-              <div>
-                <h2 className="text-3xl font-black">
-                  Top Reforming Countries
-                </h2>
-
-                <p className="text-slate-500 mt-2">
-                  Highest performing mental health reform systems.
-                </p>
-              </div>
-
-              <div className="bg-cyan-100 p-4 rounded-2xl">
-                <Globe className="w-7 h-7 text-cyan-700" />
-              </div>
-
-            </div>
-
-            <div className="space-y-5">
-
-              {topCountries.map(
-                (
-                  country: any,
-                  index: number
-                ) => (
-
-                  <div
-                    key={country.id}
-                    className="flex items-center justify-between bg-slate-50 p-5 rounded-2xl border border-slate-200"
-                  >
-
-                    <div className="flex items-center gap-5">
-
-                      <div className="bg-slate-900 text-white w-12 h-12 rounded-full flex items-center justify-center font-black text-lg">
-                        {index + 1}
-                      </div>
-
-                      <div>
-
-                        <h3 className="text-xl font-bold">
-                          {country.country_name}
-                        </h3>
-
-                        <p className="text-slate-500 mt-1">
-                          {country.reform_tier}
-                        </p>
-
-                      </div>
-
-                    </div>
-
-                    <div className="text-right">
-
-                      <p className="text-3xl font-black text-cyan-700">
-                        {country.reform_score}%
-                      </p>
-
-                      <p className="text-slate-500 text-sm">
-                        Reform Score
-                      </p>
-
-                    </div>
-
-                  </div>
-
-                )
-              )}
-
-            </div>
-
-          </div>
-
-          {/* AI INSIGHTS */}
-          <div className="bg-white rounded-3xl p-8 shadow-xl">
-
-            <div className="flex items-center gap-4 mb-8">
-
-              <div className="bg-purple-100 p-4 rounded-2xl">
-                <BrainCircuit className="w-8 h-8 text-purple-700" />
-              </div>
-
-              <div>
-                <h2 className="text-3xl font-black">
-                  AI Insights
-                </h2>
-
-                <p className="text-slate-500 mt-1">
-                  Continental intelligence analysis.
-                </p>
-              </div>
-
-            </div>
-
-            <div className="space-y-5">
-
-              <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
-                <h3 className="font-bold text-red-700">
-                  High-Risk Alert
-                </h3>
-
-                <p className="text-slate-600 mt-2 text-sm leading-relaxed">
-                  Multiple countries remain without fully operational mental health legislation and implementation frameworks.
-                </p>
-              </div>
-
-              <div className="bg-cyan-50 border border-cyan-200 rounded-2xl p-5">
-                <h3 className="font-bold text-cyan-700">
-                  Reform Momentum
-                </h3>
-
-                <p className="text-slate-600 mt-2 text-sm leading-relaxed">
-                  West and East Africa show increasing policy modernization and SDG integration trends.
-                </p>
-              </div>
-
-              <div className="bg-green-50 border border-green-200 rounded-2xl p-5">
-                <h3 className="font-bold text-green-700">
-                  Investment Opportunity
-                </h3>
-
-                <p className="text-slate-600 mt-2 text-sm leading-relaxed">
-                  Community workforce expansion and suicide decriminalization reforms present high-impact donor opportunities.
-                </p>
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-        {/* PRIORITY COUNTRIES */}
-        <div className="bg-white rounded-3xl p-8 shadow-xl mb-10">
-
-          <div className="flex items-center justify-between mb-8">
-
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
+      {/* Hero Header */}
+      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%2306b6d4' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] opacity-30"></div>
+        
+        <div className="relative px-6 md:px-8 py-8 md:py-10">
+          <div className="flex justify-between items-start flex-wrap gap-4">
             <div>
-              <h2 className="text-3xl font-black">
-                High Priority Countries
-              </h2>
-
-              <p className="text-slate-500 mt-2">
-                Countries requiring urgent governance and reform interventions.
-              </p>
-            </div>
-
-            <div className="bg-red-100 p-4 rounded-2xl">
-              <ShieldAlert className="w-8 h-8 text-red-700" />
-            </div>
-
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-
-            {priorityCountries.slice(0, 6).map(
-              (country: any) => (
-
-                <div
-                  key={country.id}
-                  className="border border-red-200 bg-red-50 rounded-2xl p-6"
-                >
-
-                  <h3 className="text-xl font-bold text-red-700">
-                    {country.country_name}
-                  </h3>
-
-                  <p className="text-slate-600 mt-2 text-sm leading-relaxed">
-                    Requires accelerated policy reform, governance strengthening, and donor-supported implementation strategies.
-                  </p>
-
-                  <div className="mt-5 flex justify-between text-sm">
-
-                    <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full">
-                      {country.reform_score}% Reform
-                    </span>
-
-                    <span className="bg-white px-3 py-1 rounded-full border border-red-200">
-                      SDG {country.sdg3_score}%
-                    </span>
-
-                  </div>
-
+              <div className="flex items-center gap-3 mb-4">
+                <div className="px-3 py-1 bg-cyan-500/20 rounded-full border border-cyan-500/30">
+                  <span className="text-cyan-300 text-xs font-mono tracking-wider">
+                    EXECUTIVE COMMAND CENTER
+                  </span>
                 </div>
-
-              )
-            )}
-
-          </div>
-
-        </div>
-
-        {/* RECENT REPORTS */}
-        <div className="bg-white rounded-3xl p-8 shadow-xl">
-
-          <div className="flex items-center justify-between mb-8">
-
-            <div>
-              <h2 className="text-3xl font-black">
-                Governance Intelligence Feed
-              </h2>
-
-              <p className="text-slate-500 mt-2">
-                Latest submissions and continental reporting activity.
+                <div className="flex items-center gap-1">
+                  <Activity className="w-4 h-4 text-green-400 animate-pulse" />
+                  <span className="text-slate-400 text-xs">Live Intelligence</span>
+                </div>
+              </div>
+              <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+                Executive Continental Command Center
+              </h1>
+              <p className="text-slate-300 text-base md:text-lg mt-3 max-w-3xl">
+                Unified Pan-African mental health reform intelligence, governance analytics,
+                SDG monitoring, donor intelligence, and AI-assisted policy insights.
               </p>
             </div>
 
-            <div className="bg-slate-100 p-4 rounded-2xl">
-              <FileText className="w-8 h-8 text-slate-700" />
+            <div className="flex gap-2">
+              <button
+                onClick={fetchDashboard}
+                className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span className="text-sm hidden sm:inline">Refresh</span>
+              </button>
+              <button className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors">
+                <Download className="w-4 h-4" />
+                <span className="text-sm hidden sm:inline">Export</span>
+              </button>
             </div>
-
           </div>
 
-          <div className="space-y-5">
-
-            {dashboard.reports.length === 0 ? (
-
-              <div className="bg-slate-50 rounded-2xl p-8 text-center border border-slate-200">
-
-                <p className="text-slate-500 text-lg">
-                  No reports uploaded yet.
-                </p>
-
-                <p className="text-slate-400 mt-2">
-                  Country coordinators and researchers will appear here.
-                </p>
-
+          {/* Key Metrics Row */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mt-8">
+            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+              <p className="text-slate-400 text-xs">Active Countries</p>
+              <p className="text-2xl font-bold text-white">{dashboard.metrics.totalCountries}</p>
+            </div>
+            <div className="bg-cyan-500/10 rounded-xl p-4 border border-cyan-500/20">
+              <p className="text-cyan-400 text-xs">Avg Reform Score</p>
+              <p className="text-2xl font-bold text-cyan-400">{dashboard.metrics.avgReformScore}%</p>
+              <div className="flex items-center gap-1 mt-1">
+                {getTrendIcon(dashboard.trends.reformProgress)}
+                <span className="text-emerald-400 text-xs">+{dashboard.trends.reformProgress}% YoY</span>
               </div>
-
-            ) : (
-
-              dashboard.reports.map(
-                (report: any) => (
-
-                  <div
-                    key={report.id}
-                    className="bg-slate-50 p-6 rounded-2xl border border-slate-200"
-                  >
-
-                    <h3 className="text-xl font-bold">
-                      {report.title}
-                    </h3>
-
-                    <p className="text-slate-500 mt-2">
-                      {report.country}
-                    </p>
-
-                  </div>
-
-                )
-              )
-
-            )}
-
+            </div>
+            <div className="bg-green-500/10 rounded-xl p-4 border border-green-500/20">
+              <p className="text-green-400 text-xs">Avg SDG 3 Score</p>
+              <p className="text-2xl font-bold text-green-400">{dashboard.metrics.avgSDG3}%</p>
+              <div className="flex items-center gap-1 mt-1">
+                {getTrendIcon(dashboard.trends.sdgProgress)}
+                <span className="text-emerald-400 text-xs">+{dashboard.trends.sdgProgress}% YoY</span>
+              </div>
+            </div>
+            <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/20">
+              <p className="text-red-400 text-xs">High Priority States</p>
+              <p className="text-2xl font-bold text-red-400">{dashboard.metrics.highPriority}</p>
+            </div>
+            <div className="bg-purple-500/10 rounded-xl p-4 border border-purple-500/20">
+              <p className="text-purple-400 text-xs">Active Orgs</p>
+              <p className="text-2xl font-bold text-purple-400">{dashboard.metrics.totalOrganizations}</p>
+            </div>
+            <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20">
+              <p className="text-emerald-400 text-xs">Reports This Month</p>
+              <p className="text-2xl font-bold text-emerald-400">{dashboard.metrics.reportsThisMonth}</p>
+            </div>
           </div>
-
         </div>
-
       </div>
 
-    </main>
+      <div className="px-4 md:px-8 py-6">
+        {/* KPI Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-slate-400 text-sm uppercase tracking-wide">Workforce Capacity</p>
+                <h2 className={`text-4xl font-bold mt-2 ${getScoreColor(dashboard.metrics.avgWorkforceScore)}`}>
+                  {dashboard.metrics.avgWorkforceScore}%
+                </h2>
+              </div>
+              <div className="bg-cyan-500/20 p-4 rounded-2xl">
+                <Users className="w-6 h-6 text-cyan-400" />
+              </div>
+            </div>
+          </div>
 
+          <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-slate-400 text-sm uppercase tracking-wide">Financing & Budget</p>
+                <h2 className={`text-4xl font-bold mt-2 ${getScoreColor(dashboard.metrics.avgFinancingScore)}`}>
+                  {dashboard.metrics.avgFinancingScore}%
+                </h2>
+              </div>
+              <div className="bg-emerald-500/20 p-4 rounded-2xl">
+                <BadgeDollarSign className="w-6 h-6 text-emerald-400" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-slate-400 text-sm uppercase tracking-wide">Active Coordinators</p>
+                <h2 className="text-4xl font-bold text-white mt-2">{dashboard.metrics.activeCoordinators}</h2>
+              </div>
+              <div className="bg-purple-500/20 p-4 rounded-2xl">
+                <Building2 className="w-6 h-6 text-purple-400" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-slate-400 text-sm uppercase tracking-wide">Investment Readiness</p>
+                <h2 className="text-4xl font-bold text-amber-400 mt-2">72%</h2>
+              </div>
+              <div className="bg-amber-500/20 p-4 rounded-2xl">
+                <TrendingUp className="w-6 h-6 text-amber-400" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+          {/* Top Countries */}
+          <div className="lg:col-span-2 bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white">Top Reforming Countries</h2>
+                <p className="text-slate-400 text-sm mt-1">Highest performing mental health reform systems</p>
+              </div>
+              <div className="bg-cyan-500/20 p-3 rounded-xl">
+                <Award className="w-5 h-5 text-cyan-400" />
+              </div>
+            </div>
+            <div className="space-y-4">
+              {topCountries.map((country, index) => (
+                <div key={country.id} className="flex items-center justify-between bg-slate-700/30 p-4 rounded-xl hover:bg-slate-700/50 transition-colors">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${
+                      index === 0 ? "bg-yellow-500/20 text-yellow-400" :
+                      index === 1 ? "bg-slate-400/20 text-slate-400" :
+                      index === 2 ? "bg-amber-600/20 text-amber-400" :
+                      "bg-slate-700 text-slate-400"
+                    }`}>
+                      {index + 1}
+                    </div>
+                    <div>
+                      <h3 className="text-white font-semibold">{country.country_name}</h3>
+                      <p className="text-slate-400 text-xs">{country.region}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-2xl font-bold ${getScoreColor(country.reform_score)}`}>
+                      {country.reform_score}%
+                    </p>
+                    <p className="text-slate-500 text-xs">Reform Score</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Link href="/rankings" className="inline-flex items-center gap-1 mt-4 text-cyan-400 hover:text-cyan-300 text-sm transition-colors">
+              View Full Rankings
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+
+          {/* AI Insights */}
+          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-purple-500/20 p-3 rounded-xl">
+                <BrainCircuit className="w-6 h-6 text-purple-400" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-white">AI Insights</h2>
+                <p className="text-slate-400 text-sm">Continental intelligence analysis</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-4 h-4 text-red-400" />
+                  <h3 className="font-semibold text-red-400">Risk Alert</h3>
+                </div>
+                <p className="text-slate-300 text-sm">{dashboard.aiInsights.riskAlert}</p>
+              </div>
+              <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="w-4 h-4 text-cyan-400" />
+                  <h3 className="font-semibold text-cyan-400">Opportunity</h3>
+                </div>
+                <p className="text-slate-300 text-sm">{dashboard.aiInsights.opportunity}</p>
+              </div>
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Target className="w-4 h-4 text-emerald-400" />
+                  <h3 className="font-semibold text-emerald-400">Recommendation</h3>
+                </div>
+                <p className="text-slate-300 text-sm">{dashboard.aiInsights.recommendation}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Priority Countries */}
+        <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-2xl font-bold text-white">High Priority Countries</h2>
+              <p className="text-slate-400 text-sm mt-1">Countries requiring urgent governance and reform interventions</p>
+            </div>
+            <div className="bg-red-500/20 p-3 rounded-xl">
+              <ShieldAlert className="w-5 h-5 text-red-400" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {priorityCountries.slice(0, 6).map((country) => (
+              <div key={country.id} className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 hover:bg-red-500/10 transition-colors">
+                <div className="flex justify-between items-start mb-2">
+                  <h3 className="text-lg font-semibold text-white">{country.country_name}</h3>
+                  <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs">Urgent</span>
+                </div>
+                <p className="text-slate-400 text-xs mb-3">{country.region}</p>
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-slate-500">Reform Score</span>
+                  <span className={`font-medium ${getScoreColor(country.reform_score)}`}>{country.reform_score}%</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">SDG 3.4</span>
+                  <span className="text-purple-400">{country.sdg3_score}%</span>
+                </div>
+                <Link href={`/country/${encodeURIComponent(country.country_name)}`} className="inline-flex items-center gap-1 mt-3 text-cyan-400 hover:text-cyan-300 text-xs transition-colors">
+                  View Profile
+                  <Eye className="w-3 h-3" />
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Recent Reports & Activity */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white">Recent Reports</h2>
+                <p className="text-slate-400 text-sm mt-1">Latest continental submissions</p>
+              </div>
+              <div className="bg-slate-700 p-3 rounded-xl">
+                <FileText className="w-5 h-5 text-slate-400" />
+              </div>
+            </div>
+            {dashboard.reports.length === 0 ? (
+              <div className="bg-slate-700/30 rounded-xl p-8 text-center">
+                <p className="text-slate-400">No reports submitted yet</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {dashboard.reports.map((report) => (
+                  <div key={report.id} className="flex items-center justify-between bg-slate-700/30 p-4 rounded-xl hover:bg-slate-700/50 transition-colors">
+                    <div>
+                      <h3 className="text-white font-medium">{report.title}</h3>
+                      <p className="text-slate-400 text-xs flex items-center gap-2 mt-1">
+                        <Globe className="w-3 h-3" />
+                        {report.country}
+                        <Calendar className="w-3 h-3 ml-2" />
+                        {new Date(report.submitted_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs ${
+                      report.status === "Approved" ? "bg-emerald-500/20 text-emerald-400" :
+                      report.status === "Under Review" ? "bg-cyan-500/20 text-cyan-400" :
+                      "bg-yellow-500/20 text-yellow-400"
+                    }`}>
+                      {report.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white">Governance Summary</h2>
+                <p className="text-slate-400 text-sm mt-1">Continental oversight snapshot</p>
+              </div>
+              <div className="bg-cyan-500/20 p-3 rounded-xl">
+                <Activity className="w-5 h-5 text-cyan-400" />
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="bg-slate-700/30 rounded-xl p-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-slate-400 text-sm">Implementation Gap</span>
+                  <span className="text-red-400 font-bold">{dashboard.trends.implementationGap}%</span>
+                </div>
+                <div className="w-full bg-slate-700 rounded-full h-2">
+                  <div className="bg-red-500 h-2 rounded-full" style={{ width: `${dashboard.trends.implementationGap}%` }}></div>
+                </div>
+                <p className="text-slate-400 text-xs mt-2">Countries with significant implementation gaps</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-700/30 rounded-xl p-3 text-center">
+                  <p className="text-slate-400 text-xs">SDG Alignment Rate</p>
+                  <p className="text-2xl font-bold text-green-400">{dashboard.metrics.avgSDG3}%</p>
+                </div>
+                <div className="bg-slate-700/30 rounded-xl p-3 text-center">
+                  <p className="text-slate-400 text-xs">Org Participation</p>
+                  <p className="text-2xl font-bold text-purple-400">{dashboard.metrics.totalOrganizations}</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-slate-700">
+              <p className="text-slate-500 text-xs text-center">Last updated: {lastUpdated}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
-
 }
