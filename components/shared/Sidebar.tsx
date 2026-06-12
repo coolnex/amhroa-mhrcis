@@ -124,11 +124,12 @@ const navigationGroups = {
   collaboration: {
     label: "COLLABORATION",
     icon: Handshake,
-    roles: ["cso", "coordinator", "researcher", "mental_health_professional"],
+    roles: ["cso", "coordinator", "researcher", "mental_health_professional","donor","admin"],
     links: [
       { name: "Organizations", href: "/organizations", icon: Building2 },
       { name: "Research Hub", href: "/research-hub", icon: BookOpen },
       { name: "Coalitions", href: "/coalitions", icon: Users },
+      { name: "Events & Networking", href: "/events",icon: Handshake },
     ],
   },
   datacollection: {

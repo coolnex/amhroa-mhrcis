@@ -29,8 +29,10 @@ import {
   X,
   Loader2,
   HelpCircle,
+  User,
 } from "lucide-react";
 import { CountrySelect } from "@/components/ui/country-select";
+import Link from "next/link";
 
 interface Organization {
   id: string;
@@ -63,6 +65,7 @@ interface OrganizationFormData {
   contact_email: string;
   contact_phone: string;
   focus_areas: string[];
+  agree_terms: boolean;
 }
 
 const organizationTypes = [
@@ -109,6 +112,7 @@ export default function OrganizationsPage() {
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
   const [user, setUser] = useState<any>(null);
   const [selectedCountryCode, setSelectedCountryCode] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   
   const [formData, setFormData] = useState<OrganizationFormData>({
     name: "",
@@ -122,6 +126,7 @@ export default function OrganizationsPage() {
     contact_email: "",
     contact_phone: "",
     focus_areas: [],
+    agree_terms: false,
   });
 
   useEffect(() => {
@@ -131,43 +136,35 @@ export default function OrganizationsPage() {
 
   const checkUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      window.location.href = "/login";
-      return;
-    }
     setUser(user);
+    setIsAuthenticated(!!user);
     
-    // Pre-fill contact person from user profile
-    const { data: profile } = await supabase
-      .from("users")
-      .select("full_name")
-      .eq("id", user.id)
-      .single();
-    
-    if (profile?.full_name) {
-      setFormData(prev => ({ ...prev, contact_person: profile.full_name }));
+    if (user) {
+      // Pre-fill contact person from user profile
+      const { data: profile } = await supabase
+        .from("users")
+        .select("full_name, email")
+        .eq("id", user.id)
+        .single();
+      
+      if (profile?.full_name) {
+        setFormData(prev => ({ ...prev, contact_person: profile.full_name }));
+      }
+      if (profile?.email) {
+        setFormData(prev => ({ ...prev, contact_email: profile.email }));
+      }
     }
   };
 
   const fetchOrganizations = async () => {
     setLoading(true);
     try {
+      // For public view, only show approved organizations
       let query = supabase
         .from("organizations")
         .select("*")
+        .eq("status", "Approved")
         .order("created_at", { ascending: false });
-
-      // If not admin, only show approved or user's own organizations
-      const { data: userData } = await supabase.auth.getUser();
-      const { data: profile } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", userData.user?.id)
-        .single();
-
-      if (profile?.role !== "Admin") {
-        query = query.or(`status.eq.Approved,created_by.eq.${userData.user?.id}`);
-      }
 
       const { data, error } = await query;
 
@@ -181,10 +178,13 @@ export default function OrganizationsPage() {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value, type } = e.target;
+    if (type === "checkbox") {
+      const checked = (e.target as HTMLInputElement).checked;
+      setFormData(prev => ({ ...prev, [name]: checked }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleCountrySelect = (code: string, name: string) => {
@@ -203,11 +203,71 @@ export default function OrganizationsPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!user) return;
+    
+    // Validate terms agreement
+    if (!formData.agree_terms) {
+      alert("Please agree to the terms and conditions");
+      return;
+    }
     
     setSubmitting(true);
     
     try {
+      let createdBy = null;
+      
+      // If user is authenticated, use their ID
+      if (user) {
+        createdBy = user.id;
+      } else {
+        // For non-authenticated users, we need to create a user record first
+        // Generate a temporary password
+        const tempPassword = Math.random().toString(36).slice(-12) + "A1!";
+        
+        // Create auth user
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: formData.contact_email,
+          password: tempPassword,
+          options: {
+            data: {
+              full_name: formData.contact_person,
+              role: "Organization",
+              organization_name: formData.name,
+            },
+          },
+        });
+        
+        if (authError) {
+          console.error("Auth error:", authError);
+          alert("Registration failed: " + authError.message);
+          setSubmitting(false);
+          return;
+        }
+        
+        if (authData.user) {
+          createdBy = authData.user.id;
+          
+          // Insert into users table
+          const { error: userInsertError } = await supabase
+            .from("users")
+            .insert({
+              id: authData.user.id,
+              full_name: formData.contact_person,
+              email: formData.contact_email,
+              role: "Organization",
+              status: "Pending",
+              country: formData.country,
+              organization: formData.name,
+              created_at: new Date().toISOString(),
+            });
+          
+          if (userInsertError) {
+            console.error("User insert error:", userInsertError);
+            // Continue anyway, the organization might still be created
+          }
+        }
+      }
+      
+      // Insert organization
       const { data, error } = await supabase
         .from("organizations")
         .insert({
@@ -216,19 +276,23 @@ export default function OrganizationsPage() {
           country: formData.country,
           region: formData.region,
           description: formData.description,
-          registration_number: formData.registration_number,
-          website: formData.website,
+          registration_number: formData.registration_number || null,
+          website: formData.website || null,
           contact_person: formData.contact_person,
           contact_email: formData.contact_email,
           contact_phone: formData.contact_phone,
           focus_areas: formData.focus_areas,
-          created_by: user.id,
+          created_by: createdBy,
           status: "Pending",
+          created_at: new Date().toISOString(),
         })
         .select()
         .single();
       
-      if (error) throw error;
+      if (error) {
+        console.error("Organization insert error:", error);
+        throw error;
+      }
       
       setShowSuccess(true);
       setFormData({
@@ -243,10 +307,15 @@ export default function OrganizationsPage() {
         contact_email: "",
         contact_phone: "",
         focus_areas: [],
+        agree_terms: false,
       });
       setSelectedCountryCode("");
       setTimeout(() => setShowSuccess(false), 5000);
-      fetchOrganizations();
+      
+      // Refresh organizations list if needed
+      if (isAuthenticated) {
+        fetchOrganizations();
+      }
     } catch (error) {
       console.error("Error submitting form:", error);
       alert("An error occurred. Please try again.");
@@ -267,8 +336,6 @@ export default function OrganizationsPage() {
   const stats = {
     total: organizations.length,
     approved: organizations.filter(o => o.status === "Approved").length,
-    pending: organizations.filter(o => o.status === "Pending").length,
-    suspended: organizations.filter(o => o.status === "Suspended").length,
   };
 
   // Get unique countries for filter
@@ -313,7 +380,7 @@ export default function OrganizationsPage() {
 
       <div className="px-4 md:px-8 py-6">
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <div className="flex items-center gap-2 mb-2">
               <Building2 className="w-4 h-4 text-cyan-400" />
@@ -324,23 +391,9 @@ export default function OrganizationsPage() {
           <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20">
             <div className="flex items-center gap-2 mb-2">
               <CheckCircle className="w-4 h-4 text-emerald-400" />
-              <p className="text-emerald-400 text-xs">Approved</p>
+              <p className="text-emerald-400 text-xs">Approved Partners</p>
             </div>
             <p className="text-2xl font-bold text-emerald-400">{stats.approved}</p>
-          </div>
-          <div className="bg-yellow-500/10 rounded-xl p-4 border border-yellow-500/20">
-            <div className="flex items-center gap-2 mb-2">
-              <Clock className="w-4 h-4 text-yellow-400" />
-              <p className="text-yellow-400 text-xs">Pending Approval</p>
-            </div>
-            <p className="text-2xl font-bold text-yellow-400">{stats.pending}</p>
-          </div>
-          <div className="bg-orange-500/10 rounded-xl p-4 border border-orange-500/20">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertCircle className="w-4 h-4 text-orange-400" />
-              <p className="text-orange-400 text-xs">Suspended</p>
-            </div>
-            <p className="text-2xl font-bold text-orange-400">{stats.suspended}</p>
           </div>
         </div>
 
@@ -377,12 +430,27 @@ export default function OrganizationsPage() {
               <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
                 <h2 className="text-2xl font-bold text-white mb-6">Register Your Organization</h2>
                 
+                {!isAuthenticated && (
+                  <div className="mb-6 p-4 bg-cyan-600/10 border border-cyan-500/30 rounded-xl">
+                    <div className="flex items-start gap-3">
+                      <User className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-white text-sm font-semibold">Organization Registration</p>
+                        <p className="text-slate-300 text-sm">
+                          Upon registration, an account will be created for you as the organization administrator. 
+                          You will receive login credentials via email after admin approval.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 {showSuccess && (
                   <div className="mb-6 p-4 bg-emerald-500/20 border border-emerald-500/30 rounded-xl flex items-center gap-3">
                     <CheckCircle className="w-5 h-5 text-emerald-400" />
                     <div>
                       <p className="text-emerald-400 font-semibold">Registration Submitted Successfully!</p>
-                      <p className="text-slate-300 text-sm">Your organization has been registered and is pending admin approval.</p>
+                      <p className="text-slate-300 text-sm">Your organization has been registered and is pending admin approval. You will receive an email once approved.</p>
                     </div>
                   </div>
                 )}
@@ -533,6 +601,28 @@ export default function OrganizationsPage() {
                     />
                   </div>
 
+                  {/* Terms and Conditions */}
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      name="agree_terms"
+                      checked={formData.agree_terms}
+                      onChange={handleChange}
+                      required
+                      className="w-5 h-5 mt-0.5 accent-cyan-500"
+                    />
+                    <label className="text-slate-400 text-sm">
+                      I agree to the{" "}
+                      <Link href="/terms" className="text-cyan-400 hover:text-cyan-300">
+                        Terms and Conditions
+                      </Link>{" "}
+                      and{" "}
+                      <Link href="/privacy" className="text-cyan-400 hover:text-cyan-300">
+                        Privacy Policy
+                      </Link>
+                    </label>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={submitting}
@@ -624,17 +714,6 @@ export default function OrganizationsPage() {
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
-
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-                className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
-              >
-                <option value="all">All Status</option>
-                <option value="Approved">Approved</option>
-                <option value="Pending">Pending</option>
-                <option value="Suspended">Suspended</option>
-              </select>
             </div>
 
             {/* Organizations Grid */}
@@ -650,11 +729,7 @@ export default function OrganizationsPage() {
                       <div className="p-2 bg-cyan-500/20 rounded-lg">
                         <Building2 className="w-6 h-6 text-cyan-400" />
                       </div>
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        org.status === "Approved" ? "bg-emerald-500/20 text-emerald-400" :
-                        org.status === "Pending" ? "bg-yellow-500/20 text-yellow-400" :
-                        "bg-red-500/20 text-red-400"
-                      }`}>
+                      <span className="px-2 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400">
                         {org.status}
                       </span>
                     </div>
@@ -778,7 +853,7 @@ export default function OrganizationsPage() {
                   <p className="text-white text-sm">{selectedOrg.contact_person}</p>
                 </div>
                 <div>
-                  <p className="text-slate-500 text-xs">Registered</p>
+                  <p className="text-slate-500 text-xs">Member Since</p>
                   <p className="text-white text-sm">{new Date(selectedOrg.created_at).toLocaleDateString()}</p>
                 </div>
               </div>

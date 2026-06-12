@@ -106,7 +106,7 @@ export default function DonorDashboard() {
       .eq("id", user.id)
       .single();
 
-    if (profile?.role !== "Donor") {
+    if (profile?.role !== "Donor" && profile?.role !== "Admin") {
       window.location.href = "/dashboard";
       return;
     }
