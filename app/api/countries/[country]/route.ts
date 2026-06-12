@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import { supabase } from "@/lib/supabase";
 
 export async function GET(
   req: Request,
-  context: any
+  { params }: { params: { country: string } }
 ) {
   try {
-    const country =
-      context.params.country;
+    const slug = params.country;
 
-    const [rows]: any = await pool.query(
-      "SELECT * FROM countries WHERE country_slug = ?",
-      [country]
-    );
+    const { data, error } = await supabase
+      .from("mental_health_reforms")
+      .select("*")
+      .eq("country_slug", slug)
+      .single();
 
-    if (rows.length === 0) {
+    if (error || !data) {
       return NextResponse.json(
         {
           success: false,
@@ -26,10 +26,10 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      country: rows[0],
+      country: data,
     });
   } catch (error) {
-    console.log(error);
+    console.error(error);
 
     return NextResponse.json(
       {

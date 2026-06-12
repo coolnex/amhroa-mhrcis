@@ -1,4 +1,4 @@
-// app/api/reports/[id]/route.ts
+// app/api/repository/[id]/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
@@ -11,19 +11,21 @@ export async function GET(
 
     if (!id) {
       return NextResponse.json(
-        { success: false, message: "Report ID is required" },
+        { success: false, message: "Resource ID is required" },
         { status: 400 }
       );
     }
 
+    // Increment view count
+    await supabase.rpc('increment_resource_views', { resource_id: id });
+
     const { data, error } = await supabase
-      .from("reports")
+      .from("repository_resources")
       .select(`
         *,
-        users:submitted_by (
+        users:created_by (
           full_name,
-          email,
-          role
+          email
         )
       `)
       .eq("id", id)
@@ -32,19 +34,19 @@ export async function GET(
     if (error) {
       console.error("Supabase error:", error);
       return NextResponse.json(
-        { success: false, message: "Report not found" },
+        { success: false, message: "Resource not found" },
         { status: 404 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      report: data,
+      resource: data,
     });
   } catch (error) {
     console.error("Error:", error);
     return NextResponse.json(
-      { success: false, message: "Failed to fetch report" },
+      { success: false, message: "Failed to fetch resource" },
       { status: 500 }
     );
   }
@@ -58,65 +60,32 @@ export async function PATCH(
     const { id } = params;
     const body = await req.json();
 
-    const {
-      status,
-      reviewed_by,
-      admin_notes,
-      score,
-    } = body;
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, message: "Report ID is required" },
-        { status: 400 }
-      );
-    }
-
-    const updateData: any = {
-      status: status,
-      reviewed_by: reviewed_by,
-      admin_notes: admin_notes || null,
-      reviewed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    if (score !== undefined) {
-      updateData.score = score;
-    }
-
     const { data, error } = await supabase
-      .from("reports")
-      .update(updateData)
+      .from("repository_resources")
+      .update({
+        ...body,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", id)
       .select();
 
     if (error) {
       console.error("Supabase error:", error);
       return NextResponse.json(
-        { success: false, message: "Failed to update report" },
+        { success: false, message: "Failed to update resource" },
         { status: 500 }
-      );
-    }
-
-    if (!data || data.length === 0) {
-      return NextResponse.json(
-        { success: false, message: "Report not found" },
-        { status: 404 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      message: "Report updated successfully",
-      report: data,
+      message: "Resource updated successfully",
+      resource: data,
     });
   } catch (error) {
     console.error("Error:", error);
     return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to update report",
-      },
+      { success: false, message: "Failed to update resource" },
       { status: 500 }
     );
   }
@@ -129,34 +98,27 @@ export async function DELETE(
   try {
     const { id } = params;
 
-    if (!id) {
-      return NextResponse.json(
-        { success: false, message: "Report ID is required" },
-        { status: 400 }
-      );
-    }
-
     const { error } = await supabase
-      .from("reports")
+      .from("repository_resources")
       .delete()
       .eq("id", id);
 
     if (error) {
       console.error("Supabase error:", error);
       return NextResponse.json(
-        { success: false, message: "Failed to delete report" },
+        { success: false, message: "Failed to delete resource" },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      message: "Report deleted successfully",
+      message: "Resource deleted successfully",
     });
   } catch (error) {
     console.error("Error:", error);
     return NextResponse.json(
-      { success: false, message: "Failed to delete report" },
+      { success: false, message: "Failed to delete resource" },
       { status: 500 }
     );
   }

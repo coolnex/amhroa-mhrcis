@@ -1,18 +1,23 @@
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import { supabase } from "@/lib/supabase";
 
 export async function GET() {
   try {
-    const [rows] = await pool.query(
-      "SELECT * FROM countries"
-    );
+    const { data, error } = await supabase
+      .from("mental_health_reforms")
+      .select("*")
+      .order("country_name");
+
+    if (error) {
+      throw error;
+    }
 
     return NextResponse.json({
       success: true,
-      countries: rows,
+      countries: data,
     });
   } catch (error) {
-    console.log(error);
+    console.error(error);
 
     return NextResponse.json(
       {

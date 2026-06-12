@@ -1,53 +1,37 @@
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import { supabase } from "@/lib/supabase";
 
 export async function GET(req: Request) {
-
   try {
+    const { searchParams } = new URL(req.url);
 
-    const { searchParams } =
-      new URL(req.url);
-
-    const countryId =
-      searchParams.get("countryId");
+    const countryId = searchParams.get("countryId");
 
     if (!countryId) {
-
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Country ID required",
+          message: "Country ID required",
         },
         { status: 400 }
       );
-
     }
 
-    const [rows]: any =
-      await pool.query(
-        `
-        SELECT *
-        FROM countries
-        WHERE id = ?
-        `,
-        [countryId]
-      );
+    const { data: country, error } = await supabase
+      .from("mental_health_reforms")
+      .select("*")
+      .eq("id", countryId)
+      .single();
 
-    if (!rows.length) {
-
+    if (error || !country) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Country not found",
+          message: "Country not found",
         },
         { status: 404 }
       );
-
     }
-
-    const country = rows[0];
 
     /*
       AI INTELLIGENCE ENGINE
@@ -55,108 +39,89 @@ export async function GET(req: Request) {
 
     let reformLevel = "";
     let riskLevel = "";
-    let recommendations: string[] = [];
 
-    // REFORM LEVEL
+    const recommendations: string[] = [];
+
+    // Reform Level
+
     if (country.reform_score >= 80) {
-
-      reformLevel =
-        "High Reform Progress";
-
-    } else if (
-      country.reform_score >= 50
-    ) {
-
-      reformLevel =
-        "Moderate Reform Progress";
-
+      reformLevel = "High Reform Progress";
+    } else if (country.reform_score >= 50) {
+      reformLevel = "Moderate Reform Progress";
     } else {
-
-      reformLevel =
-        "Low Reform Progress";
-
+      reformLevel = "Low Reform Progress";
     }
 
-    // RISK LEVEL
+    // Risk Level
+
     if (country.reform_score >= 75) {
-
-      riskLevel =
-        "Low Governance Risk";
-
-    } else if (
-      country.reform_score >= 50
-    ) {
-
-      riskLevel =
-        "Moderate Governance Risk";
-
+      riskLevel = "Low Governance Risk";
+    } else if (country.reform_score >= 50) {
+      riskLevel = "Moderate Governance Risk";
     } else {
-
-      riskLevel =
-        "High Governance Risk";
-
+      riskLevel = "High Governance Risk";
     }
 
-    // RECOMMENDATIONS
-    if (
-      country.financing_score < 15
-    ) {
+    /*
+      Recommendations based on your new table
+    */
 
+    if (country.budget_level === "Low") {
       recommendations.push(
-        "Increase domestic mental health financing mechanisms."
+        "Increase national mental health budget allocation."
       );
-
     }
 
     if (
-      country.sdg_score < 15
+      country.implementation_status === "Critical"
     ) {
-
       recommendations.push(
-        "Strengthen SDG alignment and integration."
+        "Accelerate implementation of mental health reforms."
       );
-
     }
 
     if (
-      country.workforce_score < 15
+      country.law_status === "No Law"
     ) {
-
       recommendations.push(
-        "Expand community mental health workforce training."
+        "Develop and enact national mental health legislation."
       );
-
     }
 
     if (
-      country.legislation_score < 15
+      country.donor_readiness_score < 50
     ) {
-
       recommendations.push(
-        "Modernize national mental health legislation."
+        "Improve donor readiness and investment governance."
       );
-
     }
 
     if (
-      country.suicide_decriminalization_score < 15
+      country.funding_gap_level === "High"
     ) {
-
       recommendations.push(
-        "Accelerate suicide decriminalization reforms."
+        "Prioritize resource mobilization and donor engagement."
       );
-
     }
 
-    // AI SUMMARY
+    /*
+      AI Summary
+    */
+
     const summary = `
 ${country.country_name} demonstrates ${reformLevel.toLowerCase()}
 with a reform score of ${country.reform_score}%.
 
-Current assessment indicates:
+Current assessment indicates
 ${riskLevel.toLowerCase()}.
 
-Strategic priorities include:
+Priority level:
+${country.priority_level}.
+
+Strategic reform pathway:
+${country.strategy}.
+
+Key recommendations:
 ${recommendations.join(" ")}
 `;
 
@@ -165,8 +130,11 @@ ${recommendations.join(" ")}
 
       country: {
         id: country.id,
-        country_name:
-          country.country_name,
+        country_name: country.country_name,
+        reform_tier: country.reform_tier,
+        law_status: country.law_status,
+        implementation_status:
+          country.implementation_status,
         reform_score:
           country.reform_score,
       },
@@ -178,19 +146,16 @@ ${recommendations.join(" ")}
         summary,
       },
     });
-
   } catch (error) {
-
-    console.log(error);
+    console.error(error);
 
     return NextResponse.json(
       {
         success: false,
         message:
-          "Failed to generate AI profile",
+          "Failed to generate country intelligence profile",
       },
       { status: 500 }
     );
-
   }
 }

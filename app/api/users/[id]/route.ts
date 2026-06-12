@@ -1,4 +1,4 @@
-// app/api/reports/[id]/route.ts
+// app/api/users/[id]/route.ts
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
@@ -11,20 +11,25 @@ export async function GET(
 
     if (!id) {
       return NextResponse.json(
-        { success: false, message: "Report ID is required" },
+        { success: false, message: "User ID is required" },
         { status: 400 }
       );
     }
 
     const { data, error } = await supabase
-      .from("reports")
+      .from("users")
       .select(`
-        *,
-        users:submitted_by (
-          full_name,
-          email,
-          role
-        )
+        id,
+        full_name,
+        email,
+        role,
+        status,
+        organization,
+        country,
+        phone,
+        created_at,
+        last_login,
+        updated_at
       `)
       .eq("id", id)
       .single();
@@ -32,19 +37,19 @@ export async function GET(
     if (error) {
       console.error("Supabase error:", error);
       return NextResponse.json(
-        { success: false, message: "Report not found" },
+        { success: false, message: "User not found" },
         { status: 404 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      report: data,
+      user: data,
     });
   } catch (error) {
     console.error("Error:", error);
     return NextResponse.json(
-      { success: false, message: "Failed to fetch report" },
+      { success: false, message: "Failed to fetch user" },
       { status: 500 }
     );
   }
@@ -58,34 +63,28 @@ export async function PATCH(
     const { id } = params;
     const body = await req.json();
 
-    const {
-      status,
-      reviewed_by,
-      admin_notes,
-      score,
-    } = body;
+    const { full_name, role, organization, country, phone, status } = body;
 
     if (!id) {
       return NextResponse.json(
-        { success: false, message: "Report ID is required" },
+        { success: false, message: "User ID is required" },
         { status: 400 }
       );
     }
 
     const updateData: any = {
-      status: status,
-      reviewed_by: reviewed_by,
-      admin_notes: admin_notes || null,
-      reviewed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-
-    if (score !== undefined) {
-      updateData.score = score;
-    }
+    
+    if (full_name !== undefined) updateData.full_name = full_name;
+    if (role !== undefined) updateData.role = role;
+    if (organization !== undefined) updateData.organization = organization;
+    if (country !== undefined) updateData.country = country;
+    if (phone !== undefined) updateData.phone = phone;
+    if (status !== undefined) updateData.status = status;
 
     const { data, error } = await supabase
-      .from("reports")
+      .from("users")
       .update(updateData)
       .eq("id", id)
       .select();
@@ -93,30 +92,20 @@ export async function PATCH(
     if (error) {
       console.error("Supabase error:", error);
       return NextResponse.json(
-        { success: false, message: "Failed to update report" },
+        { success: false, message: "Failed to update user" },
         { status: 500 }
-      );
-    }
-
-    if (!data || data.length === 0) {
-      return NextResponse.json(
-        { success: false, message: "Report not found" },
-        { status: 404 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      message: "Report updated successfully",
-      report: data,
+      message: "User updated successfully",
+      user: data,
     });
   } catch (error) {
     console.error("Error:", error);
     return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to update report",
-      },
+      { success: false, message: "Failed to update user" },
       { status: 500 }
     );
   }
@@ -131,32 +120,32 @@ export async function DELETE(
 
     if (!id) {
       return NextResponse.json(
-        { success: false, message: "Report ID is required" },
+        { success: false, message: "User ID is required" },
         { status: 400 }
       );
     }
 
     const { error } = await supabase
-      .from("reports")
+      .from("users")
       .delete()
       .eq("id", id);
 
     if (error) {
       console.error("Supabase error:", error);
       return NextResponse.json(
-        { success: false, message: "Failed to delete report" },
+        { success: false, message: "Failed to delete user" },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      message: "Report deleted successfully",
+      message: "User deleted successfully",
     });
   } catch (error) {
     console.error("Error:", error);
     return NextResponse.json(
-      { success: false, message: "Failed to delete report" },
+      { success: false, message: "Failed to delete user" },
       { status: 500 }
     );
   }

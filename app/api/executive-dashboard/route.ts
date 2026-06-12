@@ -1,93 +1,64 @@
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import { supabase } from "@/lib/supabase";
 
 export async function GET() {
-
   try {
+    const { data: countries, error } = await supabase
+      .from("mental_health_reforms")
+      .select("*");
 
-    /*
-      COUNTRIES
-    */
-    const [countries]: any =
-      await pool.query(
-        `
-        SELECT *
-        FROM mental_health_reforms
-        `
-      );
+    if (error) {
+      throw error;
+    }
 
-    /*
-      REPORTS
-    */
-      const reports: any[] = [];
+    const reports: any[] = [];
 
-    /*
-      CALCULATIONS
-    */
-
-    const totalCountries =
-      countries.length;
+    const totalCountries = countries.length;
 
     const avgReformScore =
-      Math.round(
-
-        countries.reduce(
-          (
-            acc: number,
-            country: any
-          ) =>
-            acc +
-            country.reform_score,
-          0
-        ) / totalCountries
-
-      );
+      totalCountries > 0
+        ? Math.round(
+            countries.reduce(
+              (acc, country) =>
+                acc + (country.reform_score || 0),
+              0
+            ) / totalCountries
+          )
+        : 0;
 
     const highPriority =
       countries.filter(
-        (
-          country: any
-        ) =>
+        (country) =>
           country.priority_level ===
           "High Priority"
       ).length;
 
     const avgSDG3 =
-      Math.round(
-
-        countries.reduce(
-          (
-            acc: number,
-            country: any
-          ) =>
-            acc +
-            country.sdg3_score,
-          0
-        ) / totalCountries
-
-      );
+      totalCountries > 0
+        ? Math.round(
+            countries.reduce(
+              (acc, country) =>
+                acc + (country.sdg3_score || 0),
+              0
+            ) / totalCountries
+          )
+        : 0;
 
     return NextResponse.json({
-
       success: true,
 
       metrics: {
-
         totalCountries,
         avgReformScore,
         highPriority,
         avgSDG3,
-
       },
 
       countries,
       reports,
-
     });
-
   } catch (error) {
-
-    console.log(error);
+    console.error(error);
 
     return NextResponse.json(
       {
@@ -95,9 +66,9 @@ export async function GET() {
         message:
           "Failed to load executive intelligence",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
-
   }
-
 }
