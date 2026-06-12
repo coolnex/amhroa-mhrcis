@@ -40,6 +40,8 @@ import {
   LogOut,
   Heart,
   Mail,
+  DollarSign,
+  Award,
 } from "lucide-react";
 
 // User role types
@@ -112,10 +114,11 @@ const navigationGroups = {
   repository: {
     label: "KNOWLEDGE REPOSITORY",
     icon: FolderGit2,
-    roles: ["admin", "researcher", "cso", "coordinator", "mental_health_professional"],
+    roles: ["admin", "researcher", "cso", "coordinator", "mental_health_professional", "donor"],
     links: [
       { name: "Repository", href: "/repository", icon: FolderGit2 },
-      { name: "Submissions", href: "/submissions", icon: FileCheck },
+      {name: "submissions", href: "/data-collection/submissions", icon: FileCheck },
+      
     ],
   },
   collaboration: {
@@ -136,7 +139,19 @@ const navigationGroups = {
       { name: "Submit Report", href: "/data-collection/submit-report", icon: FileText },
       { name: "Field Reports", href: "/data-collection/field-reports", icon: AlertTriangle },
       { name: "Surveys", href: "/data-collection/surveys", icon: ClipboardList },
-      { name: "My Submissions", href: "/data-collection/my-submissions", icon: FolderOpen },
+      { name: "My Submissions", href: "/data-collection/submissions", icon: FolderOpen },
+    ],
+  },
+  investment: {
+    label: "INVESTMENT & FUNDING",
+    icon: DollarSign,
+    roles: ["admin", "donor", "researcher"],
+    links: [
+      { name: "Donor Dashboard", href: "/donor", icon: Award },
+      { name: "Funding Requests", href: "/funding-requests", icon: Target },
+      { name: "Research Sponsorships", href: "/research-sponsorships", icon: Briefcase },
+      { name: "Impact Reports", href: "/impact-reports", icon: FileText },
+      { name: "Investment Portfolio", href: "/investment-portfolio", icon: TrendingUp },
     ],
   },
 };
@@ -155,6 +170,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([
     "intelligence",
     "analysis",
+    "investment",
   ]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -183,6 +199,8 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           pathname === "/about" ||
           pathname === "/contact" ||
           pathname === "/forgot-password" ||
+          pathname === "/terms" ||
+          pathname === "/privacy" ||
           pathname.startsWith("/public");
         
         if (!isPublicRoute && pathname !== "/") {
@@ -238,7 +256,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
 
   const isActiveLink = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard";
-    return pathname.startsWith(href);
+    return pathname?.startsWith(href);
   };
 
   const toggleGroup = (groupKey: string) => {
@@ -295,26 +313,26 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       </button>
 
       {/* Logo Section */}
-      <div className="flex items-center gap-3">
-          <Image
-            src="/logo.png"
-            alt="AMHROA"
-            width={48}
-            height={48}
-          />
-
-          {!collapsed && (
+      <div className={`p-6 border-b border-slate-700/50 ${collapsed ? "text-center" : ""}`}>
+        {!collapsed ? (
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center">
+              <Heart className="w-6 h-6 text-white" />
+            </div>
             <div>
-              <h1 className="text-xl font-bold">
+              <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
                 AMHROA
               </h1>
-
-              <p className="text-xs text-slate-400">
-                Mental Health Reform Observatory
-              </p>
+              <p className="text-slate-400 text-xs">Mental Health Reform Observatory</p>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center">
+            <Heart className="w-8 h-8 text-cyan-400" />
+            <div className="w-6 h-0.5 bg-cyan-500/50 mt-2"></div>
+          </div>
+        )}
+      </div>
 
       {/* User Role Indicator */}
       {!collapsed && (
@@ -431,6 +449,10 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           <div className="flex justify-between text-xs">
             <span className="text-slate-400">AI Confidence</span>
             <span className="text-emerald-400 font-mono font-bold">94.7%</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-400">Active Investments</span>
+            <span className="text-yellow-400 font-mono font-bold">$2.4M</span>
           </div>
           <div className="w-full bg-slate-700 rounded-full h-1 mt-2">
             <div className="bg-gradient-to-r from-cyan-500 to-blue-500 h-1 rounded-full w-3/4"></div>

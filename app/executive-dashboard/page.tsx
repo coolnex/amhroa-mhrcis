@@ -65,13 +65,13 @@ interface ExecutiveDashboardData {
     submitted_at: string;
     status: string;
   }>;
-  aiInsights: {
+  aiInsights?: {
     summary: string;
     riskAlert: string;
     opportunity: string;
     recommendation: string;
   };
-  trends: {
+  trends?: {
     reformProgress: number;
     sdgProgress: number;
     implementationGap: number;
@@ -136,10 +136,16 @@ const getScoreColor = (score: number) => {
   return "text-red-400";
 };
 
+const getTrendIcon = (value: number | undefined) => {
+  if (!value) return null;
+  if (value > 0) return <ArrowUpRight className="w-4 h-4 text-emerald-400" />;
+  if (value < 0) return <ArrowDownRight className="w-4 h-4 text-red-400" />;
+  return null;
+};
+
 export default function ExecutiveDashboardPage() {
   const [dashboard, setDashboard] = useState<ExecutiveDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedMetric, setSelectedMetric] = useState<string>("all");
   const [lastUpdated, setLastUpdated] = useState<string>("");
 
   useEffect(() => {
@@ -176,12 +182,6 @@ export default function ExecutiveDashboardPage() {
   const priorityCountries = dashboard?.countries.filter(
     (country) => country.priority_level === "High Priority"
   ) || [];
-
-  const getTrendIcon = (value: number) => {
-    if (value > 0) return <ArrowUpRight className="w-4 h-4 text-emerald-400" />;
-    if (value < 0) return <ArrowDownRight className="w-4 h-4 text-red-400" />;
-    return null;
-  };
 
   if (loading) {
     return (
@@ -250,16 +250,16 @@ export default function ExecutiveDashboardPage() {
               <p className="text-cyan-400 text-xs">Avg Reform Score</p>
               <p className="text-2xl font-bold text-cyan-400">{dashboard.metrics.avgReformScore}%</p>
               <div className="flex items-center gap-1 mt-1">
-                {getTrendIcon(dashboard.trends.reformProgress)}
-                <span className="text-emerald-400 text-xs">+{dashboard.trends.reformProgress}% YoY</span>
+                {getTrendIcon(dashboard.trends?.reformProgress)}
+                <span className="text-emerald-400 text-xs">+{dashboard.trends?.reformProgress || 0}% YoY</span>
               </div>
             </div>
             <div className="bg-green-500/10 rounded-xl p-4 border border-green-500/20">
               <p className="text-green-400 text-xs">Avg SDG 3 Score</p>
               <p className="text-2xl font-bold text-green-400">{dashboard.metrics.avgSDG3}%</p>
               <div className="flex items-center gap-1 mt-1">
-                {getTrendIcon(dashboard.trends.sdgProgress)}
-                <span className="text-emerald-400 text-xs">+{dashboard.trends.sdgProgress}% YoY</span>
+                {getTrendIcon(dashboard.trends?.sdgProgress)}
+                <span className="text-emerald-400 text-xs">+{dashboard.trends?.sdgProgress || 0}% YoY</span>
               </div>
             </div>
             <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/20">
@@ -396,21 +396,21 @@ export default function ExecutiveDashboardPage() {
                   <AlertTriangle className="w-4 h-4 text-red-400" />
                   <h3 className="font-semibold text-red-400">Risk Alert</h3>
                 </div>
-                <p className="text-slate-300 text-sm">{dashboard.aiInsights.riskAlert}</p>
+                <p className="text-slate-300 text-sm">{dashboard.aiInsights?.riskAlert || "Multiple countries require urgent intervention"}</p>
               </div>
               <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <TrendingUp className="w-4 h-4 text-cyan-400" />
                   <h3 className="font-semibold text-cyan-400">Opportunity</h3>
                 </div>
-                <p className="text-slate-300 text-sm">{dashboard.aiInsights.opportunity}</p>
+                <p className="text-slate-300 text-sm">{dashboard.aiInsights?.opportunity || "Community workforce expansion presents high-impact donor opportunities"}</p>
               </div>
               <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Target className="w-4 h-4 text-emerald-400" />
                   <h3 className="font-semibold text-emerald-400">Recommendation</h3>
                 </div>
-                <p className="text-slate-300 text-sm">{dashboard.aiInsights.recommendation}</p>
+                <p className="text-slate-300 text-sm">{dashboard.aiInsights?.recommendation || "Prioritize technical assistance for Tier 1 and Tier 2 countries"}</p>
               </div>
             </div>
           </div>
@@ -464,7 +464,7 @@ export default function ExecutiveDashboardPage() {
                 <FileText className="w-5 h-5 text-slate-400" />
               </div>
             </div>
-            {dashboard.reports.length === 0 ? (
+            {!dashboard.reports || dashboard.reports.length === 0 ? (
               <div className="bg-slate-700/30 rounded-xl p-8 text-center">
                 <p className="text-slate-400">No reports submitted yet</p>
               </div>
@@ -508,10 +508,10 @@ export default function ExecutiveDashboardPage() {
               <div className="bg-slate-700/30 rounded-xl p-4">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-slate-400 text-sm">Implementation Gap</span>
-                  <span className="text-red-400 font-bold">{dashboard.trends.implementationGap}%</span>
+                  <span className="text-red-400 font-bold">{dashboard.trends?.implementationGap || 0}%</span>
                 </div>
                 <div className="w-full bg-slate-700 rounded-full h-2">
-                  <div className="bg-red-500 h-2 rounded-full" style={{ width: `${dashboard.trends.implementationGap}%` }}></div>
+                  <div className="bg-red-500 h-2 rounded-full" style={{ width: `${dashboard.trends?.implementationGap || 0}%` }}></div>
                 </div>
                 <p className="text-slate-400 text-xs mt-2">Countries with significant implementation gaps</p>
               </div>
