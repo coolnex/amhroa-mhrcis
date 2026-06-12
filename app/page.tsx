@@ -38,7 +38,7 @@ export default function WelcomePage() {
           </Link>
 
           <Link
-            href="/executive-dashboard"
+            href="/public"
             className="border border-slate-600 hover:border-cyan-400 hover:text-cyan-300 transition px-8 py-4 rounded-2xl text-lg"
           >
             Quick Preview

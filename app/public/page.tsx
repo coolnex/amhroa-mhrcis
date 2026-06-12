@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
@@ -124,8 +125,14 @@ export default function PublicPortal() {
           <div className="flex justify-between items-center h-20">
             {/* Logo */}
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => scrollToSection("home")}>
-              <div className="bg-gradient-to-r from-cyan-600 to-blue-600 p-2 rounded-xl">
-                <Heart className="w-8 h-8 text-white" />
+              <div className="inline-flex items-center gap-2 bg-transparent px-4 py-2 rounded-full mb-6">
+                <Image
+                  src="/logo.png"
+                  alt="AMHROA Logo"
+                  width={80}
+                  height={80}
+                  className="object-contain"
+                />
               </div>
               <div>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">
@@ -150,7 +157,7 @@ export default function PublicPortal() {
               <Link href="/login" className="px-4 py-2 text-cyan-600 border border-cyan-600 rounded-lg hover:bg-cyan-50 transition-colors">
                 Sign In
               </Link>
-              <Link href="/organizations" className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
+              <Link href="/signup" className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
                 Join Us
               </Link>
             </div>
@@ -192,10 +199,16 @@ export default function PublicPortal() {
           
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center">
-              <div className="inline-flex items-center gap-2 bg-cyan-100 px-4 py-2 rounded-full mb-6">
-                <Heart className="w-4 h-4 text-cyan-600" />
+                <div className="inline-flex items-center gap-2 bg-transparent px-4 py-2 rounded-full mb-6">
+                <Image
+                  src="/logo.png"
+                  alt="AMHROA Logo"
+                  width={40}
+                  height={40}
+                  className="object-contain"
+                />
                 <span className="text-cyan-700 text-sm font-medium">Advancing Mental Health Reform Across Africa</span>
-              </div>
+                </div>
               <h1 className="text-5xl md:text-7xl font-bold text-slate-900 mb-6">
                 Transforming Mental Health
                 <span className="block text-cyan-600">Across Africa</span>
@@ -482,7 +495,7 @@ export default function PublicPortal() {
                     </div>
                     <div>
                       <h3 className="font-bold text-slate-900">Our Headquarters</h3>
-                      <p className="text-slate-600">Nairobi, Kenya</p>
+                      <p className="text-slate-600">Abuja, Nigeria</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
@@ -491,7 +504,7 @@ export default function PublicPortal() {
                     </div>
                     <div>
                       <h3 className="font-bold text-slate-900">Phone</h3>
-                      <p className="text-slate-600">+254 712 345 678</p>
+                      <p className="text-slate-600">+234 803 464 5001</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
@@ -551,7 +564,13 @@ export default function PublicPortal() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
               <div>
                 <div className="flex items-center gap-2 mb-4">
-                  <Heart className="w-6 h-6 text-cyan-400" />
+                  <Image
+                    src="/logo.png"
+                    alt="AMHROA Logo"
+                    width={80}
+                    height={80}
+                    className="object-contain"
+                  />
                   <h3 className="text-xl font-bold">AMHROA</h3>
                 </div>
                 <p className="text-slate-400 text-sm">

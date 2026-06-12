@@ -23,6 +23,10 @@ export default function Providers({
   const noSidebarRoutes = [
     "/",
     "/login",
+    "/signup",
+    "/signup/user",
+    "/signup/organizations",
+    "/forgot-password",
   ];
 
   const showSidebar =
@@ -40,10 +44,6 @@ export default function Providers({
             onToggle={() =>
               setCollapsed(!collapsed)
             }
-            variant="executive"
-            activeItem={pathname}
-            userRole="Executive Administrator"
-            userName="AMHROA Executive"
           />
         )}
 

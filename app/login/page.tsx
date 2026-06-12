@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -200,7 +201,13 @@ export default function LoginPage() {
         {/* Logo - Fixed height to prevent layout shift */}
         <div className="text-center mb-8">
           <div className="bg-gradient-to-r from-cyan-500 to-blue-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Heart className="w-8 h-8 text-white" />
+          <Image
+              src="/logo.png"
+              alt="AMHROA Logo"
+              width={80}
+              height={80}
+              className="object-contain"
+            />
           </div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
             Welcome Back

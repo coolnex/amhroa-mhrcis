@@ -1,7 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
@@ -37,6 +39,7 @@ import {
   AlertTriangle,
   LogOut,
   Heart,
+  Mail,
 } from "lucide-react";
 
 // User role types
@@ -133,19 +136,10 @@ const navigationGroups = {
       { name: "Submit Report", href: "/data-collection/submit-report", icon: FileText },
       { name: "Field Reports", href: "/data-collection/field-reports", icon: AlertTriangle },
       { name: "Surveys", href: "/data-collection/surveys", icon: ClipboardList },
-      { name: "My Submissions", href: "/data-collection/submissions", icon: FolderOpen },
+      { name: "My Submissions", href: "/data-collection/my-submissions", icon: FolderOpen },
     ],
   },
 };
-
-// Public portal links (no sidebar needed)
-const publicLinks = [
-  { name: "Home", href: "/", icon: Heart },
-  { name: "About", href: "/about", icon: Globe },
-  { name: "Reports", href: "/reports", icon: FileText },
-  { name: "Resources", href: "/resources", icon: BookOpen },
-  { name: "Contact", href: "/contact", icon: Mail },
-];
 
 interface SidebarProps {
   collapsed?: boolean;
@@ -163,41 +157,75 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
     "analysis",
   ]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     checkUserSession();
   }, []);
 
   const checkUserSession = async () => {
+    setLoading(true);
     try {
-      // Check localStorage first
-      const storedUser = localStorage.getItem("user");
-      if (storedUser) {
-        const user = JSON.parse(storedUser);
-        const role = (user.role?.toLowerCase() || "public") as UserRole;
-        setUserRole(role);
-        setUserName(user.full_name || user.name || "");
-        setUserEmail(user.email || "");
-        setIsAuthenticated(true);
+      // Get session from Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        setIsAuthenticated(false);
+        setUserRole("public");
+        
+        // Check if current route requires authentication
+        const isPublicRoute = 
+          pathname === "/" ||
+          pathname === "/login" ||
+          pathname === "/signup" ||
+          pathname === "/signup/user" ||
+          pathname === "/signup/organizations" ||
+          pathname === "/about" ||
+          pathname === "/contact" ||
+          pathname === "/forgot-password" ||
+          pathname.startsWith("/public");
+        
+        if (!isPublicRoute && pathname !== "/") {
+          router.push("/login");
+        }
+        setLoading(false);
         return;
       }
-
-      // If no user in localStorage, check for public access
-      const isPublicRoute = pathname === "/" || 
-                           pathname === "/about" || 
-                           pathname === "/contact" ||
-                           pathname.startsWith("/public");
       
-      if (!isPublicRoute) {
-        // Redirect to login if trying to access protected route
-        router.push("/login");
+      // User is authenticated
+      setIsAuthenticated(true);
+      
+      // Get user role from metadata or localStorage
+      let role = session.user.user_metadata?.role || "public";
+      
+      // Also check users table for role if not in metadata
+      if (role === "public") {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+        
+        if (userData?.role) {
+          role = userData.role.toLowerCase();
+        }
       }
+      
+      setUserRole(role as UserRole);
+      setUserName(session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "User");
+      setUserEmail(session.user.email || "");
+      
     } catch (error) {
       console.error("Error checking user session:", error);
+      setIsAuthenticated(false);
+      setUserRole("public");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     router.push("/login");
@@ -221,7 +249,18 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
     );
   };
 
-  // Don't render sidebar for public users
+  // Show loading state
+  if (loading) {
+    return (
+      <aside className={`relative bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 text-white transition-all duration-300 ${collapsed ? "w-20" : "w-80"} min-h-screen flex flex-col shadow-2xl border-r border-slate-700/50 z-50`}>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </aside>
+    );
+  }
+
+  // Don't render sidebar for public users or unauthenticated
   if (!isAuthenticated || userRole === "public") {
     return null;
   }
@@ -256,31 +295,26 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       </button>
 
       {/* Logo Section */}
-      <div className={`p-6 border-b border-slate-700/50 ${collapsed ? "text-center" : ""}`}>
-        {!collapsed ? (
-          <>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              AMHROA
-            </h1>
-            <p className="text-slate-400 text-xs mt-2 tracking-wide">
-              MENTAL HEALTH REFORM INTELLIGENCE
-            </p>
-            <div className="mt-3 flex items-center gap-2 text-xs">
-              <span className="px-2 py-0.5 bg-cyan-600/20 text-cyan-300 rounded-full border border-cyan-500/30">
-                v3.0.1
-              </span>
-              <span className="px-2 py-0.5 bg-emerald-600/20 text-emerald-300 rounded-full border border-emerald-500/30">
-                LIVE
-              </span>
+      <div className="flex items-center gap-3">
+          <Image
+            src="/logo.png"
+            alt="AMHROA"
+            width={48}
+            height={48}
+          />
+
+          {!collapsed && (
+            <div>
+              <h1 className="text-xl font-bold">
+                AMHROA
+              </h1>
+
+              <p className="text-xs text-slate-400">
+                Mental Health Reform Observatory
+              </p>
             </div>
-          </>
-        ) : (
-          <div className="flex flex-col items-center">
-            <Heart className="w-8 h-8 text-cyan-400" />
-            <div className="w-6 h-0.5 bg-cyan-500/50 mt-2"></div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
       {/* User Role Indicator */}
       {!collapsed && (
@@ -418,9 +452,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
     </aside>
   );
 }
-
-// Add missing import for Mail
-import { Mail } from "lucide-react";
 
 // CSS for custom scrollbar (add to your global CSS file)
 export const scrollbarStyles = `
