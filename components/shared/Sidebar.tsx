@@ -157,12 +157,18 @@ const navigationGroups = {
   },
 };
 
+// components/Sidebar.tsx - Add these props
 interface SidebarProps {
   collapsed?: boolean;
   onToggle?: () => void;
+  variant?: string;        // Add this
+  activeItem?: string;     // Add this
+  userRole?: string;       // Add this
+  userName?: string;       // Add this
 }
 
-export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
+
+export default function Sidebar({ collapsed = false, onToggle, variant,  }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [userRole, setUserRole] = useState<UserRole>("public");
