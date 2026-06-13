@@ -142,14 +142,42 @@ export default function FundingRequestsPage() {
   // Update your handleCreateRequest function in funding-requests/page.tsx
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
-
-    console.log("User object:", user);
-    console.log("User ID:", user.id);
-    console.log("Form data:", formData);
-
+    if (!user) {
+      alert("Please login to create a funding request");
+      return;
+    }
+  
+    // Validate required fields
+    if (!formData.title || !formData.description || !formData.amount_needed || !formData.country || !formData.category || !formData.deadline) {
+      alert("Please fill in all required fields");
+      return;
+    }
+  
     setSubmitting(true);
     try {
+      // First, verify the user exists in the users table
+      const { data: userExists, error: userCheckError } = await supabase
+        .from("users")
+        .select("id, role")
+        .eq("id", user.id)
+        .single();
+  
+      if (userCheckError) {
+        console.error("User check error:", userCheckError);
+        alert("Your account is not properly set up. Please contact support.");
+        setSubmitting(false);
+        return;
+      }
+  
+      console.log("User exists:", userExists);
+  
+      // Check if user has researcher role
+      if (userExists.role !== "Researcher" && userExists.role !== "Admin") {
+        alert("Only researchers can create funding requests");
+        setSubmitting(false);
+        return;
+      }
+  
       const requestData = {
         researcher_id: user.id,
         title: formData.title,
@@ -158,30 +186,34 @@ export default function FundingRequestsPage() {
         amount_raised: 0,
         country: formData.country,
         category: formData.category,
-        status: "Pending", // Use Pending instead of Open for admin approval
+        status: "Pending", // Requires admin approval first
         deadline: formData.deadline,
-        created_at: new Date().toISOString(),
       };
-
-      console.log("Inserting data:", requestData);
-
+  
+      console.log("Inserting funding request:", requestData);
+  
       const { data, error } = await supabase
         .from("funding_requests")
         .insert(requestData)
         .select();
-
+  
       if (error) {
-        console.error("Supabase error details:", error);
-        console.error("Error code:", error.code);
-        console.error("Error message:", error.message);
-        console.error("Error details:", error.details);
-        alert(`Error: ${error.message}`);
+        console.error("Supabase error:", error);
+        
+        // Handle specific error cases
+        if (error.code === "23503") {
+          alert("Foreign key violation: Your user ID is not valid. Please contact support.");
+        } else if (error.code === "23505") {
+          alert("Duplicate entry. Please try again.");
+        } else {
+          alert(`Error: ${error.message}`);
+        }
         setSubmitting(false);
         return;
       }
-
-      console.log("Insert success:", data);
-
+  
+      console.log("Funding request created:", data);
+  
       setShowCreateModal(false);
       setFormData({
         title: "",
@@ -192,10 +224,10 @@ export default function FundingRequestsPage() {
         deadline: "",
       });
       fetchRequests();
-      alert("Funding request created successfully!");
+      alert("Funding request submitted for admin approval!");
     } catch (error) {
       console.error("Error creating request:", error);
-      alert("Failed to create funding request");
+      alert("An unexpected error occurred. Please try again.");
     } finally {
       setSubmitting(false);
     }
