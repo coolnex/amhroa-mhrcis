@@ -1,7 +1,9 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
+import bcrypt from "bcryptjs";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Shield,
   Users,
@@ -32,6 +34,8 @@ import {
   ChevronRight,
   MoreVertical,
   FileText,
+  Key,
+  LogOut,
 } from "lucide-react";
 
 interface User {
@@ -95,7 +99,9 @@ interface SystemHealth {
 }
 
 export default function AdminDashboard() {
+  const router = useRouter();
   const [user, setUser] = useState<any>(null);
+  const [adminUser, setAdminUser] = useState<any>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [coordinators, setCoordinators] = useState<Coordinator[]>([]);
@@ -114,46 +120,92 @@ export default function AdminDashboard() {
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [activeTab, setActiveTab] = useState<"users" | "organizations" | "coordinators" | "alerts" | "reports">("users");
   const [activityFeed, setActivityFeed] = useState<any[]>([]);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+    checkAuth();
     checkAdmin();
+  }, 100);
+  return () => clearTimeout(timer);
   }, []);
 
   const checkAdmin = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    try {
+      // Check localStorage first
+      const userStr = localStorage.getItem("user");
+      const token = localStorage.getItem("token");
 
-    if (!user) {
-      window.location.href = "/login";
-      return;
+      if (!userStr || !token) {
+        router.push("/login");
+        return;
+      }
+
+      const userData = JSON.parse(userStr);
+      
+      if (userData.role !== "Admin") {
+        router.push("/dashboard");
+        return;
+      }
+
+      if (userData.status !== "Approved") {
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      setAdminUser(userData);
+      await fetchAllData();
+    } catch (error) {
+      console.error("Admin check error:", error);
+      router.push("/login");
+    } finally {
+      setLoading(false);
     }
-
-    const { data: profile } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", user.id)
-      .single();
-
-    if (!profile || profile.role !== "Admin") {
-      alert("Access denied");
-      window.location.href = "/dashboard";
-      return;
-    }
-
-    setUser(profile);
-    fetchAllData();
   };
 
   const fetchAllData = async () => {
     setLoading(true);
-    await Promise.all([
-      fetchOrganizations(),
-      fetchUsers(),
-      fetchReports(),
-      fetchCoordinators(),
-      fetchAlerts(),
-      fetchActivityFeed(),
-    ]);
-    setLoading(false);
+    try {
+      await Promise.all([
+        fetchOrganizations(),
+        fetchUsers(),
+        fetchReports(),
+        fetchCoordinators(),
+        fetchAlerts(),
+      ]);
+      await fetchActivityFeed();
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      setErrorMessage("Failed to load some data. Please refresh.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetUserPassword = async (userId: string, userEmail: string) => {
+    const newPassword = prompt(`Enter new password for ${userEmail}:`);
+    
+    if (!newPassword || newPassword.length < 6) {
+      alert("Password must be at least 6 characters");
+      return;
+    }
+
+    try {
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      
+      const { error } = await supabase
+        .from("users")
+        .update({ password_hash: hashedPassword })
+        .eq("id", userId);
+
+      if (error) throw error;
+      
+      alert(`Password reset successful for ${userEmail}`);
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      alert("Failed to reset password");
+    }
   };
 
   const fetchReports = async () => {
@@ -165,18 +217,6 @@ export default function AdminDashboard() {
     if (!error && data) {
       setReports(data);
     }
-  };
-
-  const updateReportStatus = async (reportId: string, status: string, score?: number) => {
-    const updateData: any = { status };
-    if (score !== undefined) updateData.score = score;
-    
-    await supabase
-      .from("reports")
-      .update(updateData)
-      .eq("id", reportId);
-
-    fetchReports();
   };
 
   const fetchOrganizations = async () => {
@@ -209,13 +249,6 @@ export default function AdminDashboard() {
 
     if (!error && data) {
       setCoordinators(data);
-    } else {
-      // Mock data if table is empty
-      setCoordinators([
-        { id: "1", name: "Dr. James Mwangi", country: "Kenya", assigned_regions: ["Nairobi", "Mombasa"], status: "Active", created_at: new Date().toISOString() },
-        { id: "2", name: "Prof. Aisha Diallo", country: "Nigeria", assigned_regions: ["Lagos", "Abuja"], status: "Active", created_at: new Date().toISOString() },
-        { id: "3", name: "Dr. Thabo Nkosi", country: "South Africa", assigned_regions: ["Gauteng", "Western Cape"], status: "Inactive", created_at: new Date().toISOString() },
-      ]);
     }
   };
 
@@ -227,18 +260,10 @@ export default function AdminDashboard() {
 
     if (!error && data) {
       setAlerts(data);
-    } else {
-      // Mock data if table is empty
-      setAlerts([
-        { id: "1", type: "critical", title: "System Implementation Gap", message: "Nigeria reporting overdue by 14 days", severity: "high", status: "active", country: "Nigeria", created_at: new Date().toISOString() },
-        { id: "2", type: "warning", title: "User Approval Pending", message: "15 organizations awaiting verification", severity: "medium", status: "active", created_at: new Date().toISOString() },
-        { id: "3", type: "info", title: "AI Governance Update", message: "New continental scoring model deployed", severity: "low", status: "active", created_at: new Date().toISOString() },
-      ]);
     }
   };
 
   const fetchActivityFeed = async () => {
-    // Combine recent activities from multiple tables
     const recentUsers = users.slice(0, 3).map(u => ({
       id: u.id,
       action: "User Registered",
@@ -271,64 +296,131 @@ export default function AdminDashboard() {
   };
 
   const approveUser = async (userId: string) => {
-    const { error } = await supabase
-      .from("users")
-      .update({ status: "Approved" })
-      .eq("id", userId);
+    setActionLoading(userId);
+    setErrorMessage(null);
+    
+    try {
+      const { error } = await supabase
+        .from("users")
+        .update({ 
+          status: "Approved",
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", userId);
 
-    if (!error) {
-      fetchUsers();
-      fetchActivityFeed();
+      if (error) throw error;
+      
+      await fetchUsers();
+      await fetchActivityFeed();
+      alert("User approved successfully!");
+    } catch (err) {
+      console.error("Error in approveUser:", err);
+      setErrorMessage("An unexpected error occurred");
+      alert("Failed to approve user");
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const rejectUser = async (userId: string) => {
-    const { error } = await supabase
-      .from("users")
-      .update({ status: "Rejected" })
-      .eq("id", userId);
+    setActionLoading(userId);
+    setErrorMessage(null);
+    
+    try {
+      const { error } = await supabase
+        .from("users")
+        .update({ 
+          status: "Rejected",
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", userId);
 
-    if (!error) {
-      fetchUsers();
+      if (error) throw error;
+      
+      await fetchUsers();
+      alert("User rejected successfully!");
+    } catch (err) {
+      console.error("Error in rejectUser:", err);
+      setErrorMessage("An unexpected error occurred");
+      alert("Failed to reject user");
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const approveOrganization = async (orgId: string) => {
-    const { error } = await supabase
-      .from("organizations")
-      .update({ status: "Approved" })
-      .eq("id", orgId);
+    setActionLoading(orgId);
+    
+    try {
+      const { error } = await supabase
+        .from("organizations")
+        .update({ 
+          status: "Approved",
+          approved_at: new Date().toISOString()
+        })
+        .eq("id", orgId);
 
-    if (!error) {
-      fetchOrganizations();
+      if (error) throw error;
+      
+      await fetchOrganizations();
+      alert("Organization approved successfully!");
+    } catch (err) {
+      console.error("Error in approveOrganization:", err);
+      alert("Failed to approve organization");
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const updateCoordinatorStatus = async (coordId: string, status: string) => {
-    const { error } = await supabase
-      .from("coordinators")
-      .update({ status })
-      .eq("id", coordId);
+    setActionLoading(coordId);
+    
+    try {
+      const { error } = await supabase
+        .from("coordinators")
+        .update({ status })
+        .eq("id", coordId);
 
-    if (!error) {
-      fetchCoordinators();
+      if (error) throw error;
+      
+      await fetchCoordinators();
+      alert(`Coordinator ${status.toLowerCase()} successfully!`);
+    } catch (err) {
+      console.error("Error in updateCoordinatorStatus:", err);
+      alert("Failed to update coordinator status");
+    } finally {
+      setActionLoading(null);
     }
   };
 
-  const createAlert = async (alertData: Partial<Alert>) => {
-    const { error } = await supabase
-      .from("alerts")
-      .insert([alertData]);
+  const updateReportStatus = async (reportId: string, status: string, score?: number) => {
+    setActionLoading(reportId);
+    
+    try {
+      const updateData: any = { status };
+      if (score !== undefined) updateData.score = score;
+      
+      const { error } = await supabase
+        .from("reports")
+        .update(updateData)
+        .eq("id", reportId);
 
-    if (!error) {
-      fetchAlerts();
+      if (error) throw error;
+      
+      await fetchReports();
+      alert(`Report ${status.toLowerCase()} successfully!`);
+    } catch (err) {
+      console.error("Error in updateReportStatus:", err);
+      alert("Failed to update report status");
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const logout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    window.location.href = "/login";
+    router.push("/login");
   };
 
   const filteredUsers = users.filter(user => {
@@ -351,20 +443,67 @@ export default function AdminDashboard() {
     pendingReports: reports.filter(r => r.status === "Pending").length,
   };
 
+  const checkAuth = () => {
+    try {
+      console.log("Checking admin auth...");
+      
+      // Get from localStorage
+      const userStr = localStorage.getItem("user");
+      const token = localStorage.getItem("token");
+
+      console.log("localStorage user:", userStr);
+      console.log("localStorage token:", token ? "exists" : "missing");
+
+      if (!userStr || !token) {
+        console.log("No user/token found, redirecting to login");
+        router.push("/login");
+        return;
+      }
+
+      const userData = JSON.parse(userStr);
+      console.log("User role:", userData.role);
+      console.log("User status:", userData.status);
+
+      if (userData.role !== "Admin") {
+        console.log("Not admin role, redirecting to dashboard");
+        router.push("/dashboard");
+        return;
+      }
+
+      if (userData.status !== "Approved") {
+        console.log("Account not approved, redirecting to login");
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      console.log("Admin authenticated successfully");
+      setUser(userData);
+    } catch (error) {
+      console.error("Admin auth error:", error);
+      router.push("/login");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-300">Loading Continental Control Center...</p>
+          <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-300">Loading admin panel...</p>
         </div>
       </div>
     );
   }
 
+  if (!user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
-      {/* Header - same as before */}
+      {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-6 md:py-8">
           <div className="flex justify-between items-start flex-wrap gap-4">
@@ -381,26 +520,48 @@ export default function AdminDashboard() {
               <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
                 Governance Command Center
               </h1>
+              
               <p className="text-slate-300 text-sm md:text-base mt-2">
-                Welcome back, {user?.full_name || "Administrator"} · Continental Oversight Portal
+                Welcome back, {adminUser?.full_name || "Administrator"} · Continental Oversight Portal
               </p>
             </div>
-
+            
             <div className="flex gap-3">
-              <button onClick={() => fetchAllData()} className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors">
-                <RefreshCw className="w-4 h-4" />
-                <span className="text-sm hidden sm:inline">Refresh</span>
-              </button>
-              <button onClick={logout} className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors">
-                <Shield className="w-4 h-4" />
-                <span className="text-sm hidden sm:inline">Logout</span>
-              </button>
+            <div className="p-7-screen bg-gradient-to-br from-slate-900 to-slate-800 p-7">
+                <h1 className="text-3xl font-bold text-white mb-4">Admin Dashboard</h1>
+                <p className="text-slate-400">Welcome, {user.full_name}!</p>
+                <p className="text-slate-400">Role: {user.role}</p>
+                <p className="text-slate-400">Status: {user.status}</p>
+                <div className="flex gap-3">
+                  <button onClick={() => fetchAllData()} className="mt-4 px-4 py-2 bg-blue-600 rounded-lg text-white">
+                  <RefreshCw className="w-4 h-4" />
+                  <span className="text-sm hidden sm:inline">Refresh</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      localStorage.removeItem("token");
+                      localStorage.removeItem("user");
+                      router.push("/login");
+                    }}
+                    className="mt-4 px-4 py-2 bg-red-600 rounded-lg text-white"
+                  >
+                    Logout
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <div className="px-4 md:px-8 py-6">
+        {/* Error Message */}
+        {errorMessage && (
+          <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-400 text-sm">
+            {errorMessage}
+          </div>
+        )}
+
         {/* KPI Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-4 mb-8">
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
@@ -511,15 +672,15 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        {/* Search and Filters for Users/Organizations */}
-        {(activeTab === "users" || activeTab === "organizations") && (
+        {/* Search and Filters for Users */}
+        {activeTab === "users" && (
           <div className="flex flex-wrap gap-4 mb-6">
             <div className="flex-1 min-w-[200px]">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
-                  placeholder={`Search ${activeTab === "users" ? "users" : "organizations"}...`}
+                  placeholder="Search users..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
@@ -527,34 +688,30 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {activeTab === "users" && (
-              <>
-                <select
-                  value={selectedRole}
-                  onChange={(e) => setSelectedRole(e.target.value)}
-                  className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
-                >
-                  <option value="all">All Roles</option>
-                  <option value="Policymaker">Policymaker</option>
-                  <option value="Researcher">Researcher</option>
-                  <option value="CSO">CSO/NGO</option>
-                  <option value="Coordinator">Coordinator</option>
-                  <option value="Donor">Donor</option>
-                  <option value="Admin">Admin</option>
-                </select>
+            <select
+              value={selectedRole}
+              onChange={(e) => setSelectedRole(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
+            >
+              <option value="all">All Roles</option>
+              <option value="Policymaker">Policymaker</option>
+              <option value="Researcher">Researcher</option>
+              <option value="CSO">CSO/NGO</option>
+              <option value="Coordinator">Coordinator</option>
+              <option value="Donor">Donor</option>
+              <option value="Admin">Admin</option>
+            </select>
 
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
-                >
-                  <option value="all">All Status</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Approved">Approved</option>
-                  <option value="Rejected">Rejected</option>
-                </select>
-              </>
-            )}
+            <select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
+            >
+              <option value="all">All Status</option>
+              <option value="Pending">Pending</option>
+              <option value="Approved">Approved</option>
+              <option value="Rejected">Rejected</option>
+            </select>
           </div>
         )}
 
@@ -605,18 +762,27 @@ export default function AdminDashboard() {
                       <td className="p-4 text-slate-400 text-sm">{new Date(u.created_at).toLocaleDateString()}</td>
                       <td className="p-4">
                         <div className="flex gap-2">
+                          <button
+                            onClick={() => resetUserPassword(u.id, u.email)}
+                            className="p-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 rounded-lg text-yellow-400 transition-colors"
+                            title="Reset Password"
+                          >
+                            <Key className="w-4 h-4" />
+                          </button>
                           {u.status === "Pending" && (
                             <>
                               <button
                                 onClick={() => approveUser(u.id)}
-                                className="p-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg text-emerald-400 transition-colors"
+                                disabled={actionLoading === u.id}
+                                className="p-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg text-emerald-400 transition-colors disabled:opacity-50"
                                 title="Approve"
                               >
                                 <CheckCircle className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => rejectUser(u.id)}
-                                className="p-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-red-400 transition-colors"
+                                disabled={actionLoading === u.id}
+                                className="p-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-red-400 transition-colors disabled:opacity-50"
                                 title="Reject"
                               >
                                 <XCircle className="w-4 h-4" />
@@ -706,14 +872,12 @@ export default function AdminDashboard() {
               </h3>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1000px]">
+              <table className="w-full min-w-[800px]">
                 <thead className="bg-slate-900/50">
                   <tr>
                     <th className="text-left p-4 text-slate-400 text-sm font-medium">Title</th>
                     <th className="text-left p-4 text-slate-400 text-sm font-medium">Country</th>
                     <th className="text-left p-4 text-slate-400 text-sm font-medium">Period</th>
-                    <th className="text-left p-4 text-slate-400 text-sm font-medium">Submitted By</th>
-                    <th className="text-left p-4 text-slate-400 text-sm font-medium">Score</th>
                     <th className="text-left p-4 text-slate-400 text-sm font-medium">Status</th>
                     <th className="text-left p-4 text-slate-400 text-sm font-medium">Actions</th>
                   </tr>
@@ -724,21 +888,6 @@ export default function AdminDashboard() {
                       <td className="p-4 font-medium text-white">{report.report_title}</td>
                       <td className="p-4 text-slate-300 text-sm">{report.country || "—"}</td>
                       <td className="p-4 text-slate-300 text-sm">{report.reporting_period || "—"}</td>
-                      <td className="p-4 text-slate-300 text-sm">{report.submitted_by || "—"}</td>
-                      <td className="p-4">
-                        {report.score ? (
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            report.score >= 80 ? "bg-emerald-500/20 text-emerald-400" :
-                            report.score >= 60 ? "bg-cyan-500/20 text-cyan-400" :
-                            report.score >= 40 ? "bg-yellow-500/20 text-yellow-400" :
-                            "bg-red-500/20 text-red-400"
-                          }`}>
-                            {report.score}%
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 text-sm">—</span>
-                        )}
-                      </td>
                       <td className="p-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           report.status === "Approved" ? "bg-emerald-500/20 text-emerald-400" :
@@ -756,14 +905,12 @@ export default function AdminDashboard() {
                               <button
                                 onClick={() => updateReportStatus(report.id, "Approved", 75)}
                                 className="p-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg text-emerald-400 transition-colors"
-                                title="Approve"
                               >
                                 <CheckCircle className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => updateReportStatus(report.id, "Rejected")}
                                 className="p-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-red-400 transition-colors"
-                                title="Reject"
                               >
                                 <XCircle className="w-4 h-4" />
                               </button>
@@ -784,66 +931,36 @@ export default function AdminDashboard() {
 
         {/* Coordinators Tab */}
         {activeTab === "coordinators" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
-              <div className="p-4 border-b border-slate-700 bg-slate-800/80">
-                <h3 className="text-white font-semibold flex items-center gap-2">
-                  <Flag className="w-5 h-5 text-cyan-400" />
-                  Country Coordinators
-                </h3>
-              </div>
-              <div className="divide-y divide-slate-700">
-                {coordinators.map((coord) => (
-                  <div key={coord.id} className="p-4 flex justify-between items-center">
-                    <div>
-                      <p className="text-white font-medium">{coord.name}</p>
-                      <p className="text-slate-400 text-xs">{coord.country}</p>
-                      <div className="flex gap-1 mt-1">
-                        {coord.assigned_regions?.map(region => (
-                          <span key={region} className="px-1.5 py-0.5 bg-slate-700 rounded text-xs text-slate-300">{region}</span>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`px-2 py-1 rounded-full text-xs ${coord.status === "Active" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
-                        {coord.status}
-                      </span>
-                      <button
-                        onClick={() => updateCoordinatorStatus(coord.id, coord.status === "Active" ? "Inactive" : "Active")}
-                        className="p-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 rounded-lg text-cyan-400 transition-colors"
-                      >
-                        <Settings className="w-4 h-4" />
-                      </button>
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
+            <h3 className="text-white font-semibold flex items-center gap-2 mb-4">
+              <Flag className="w-5 h-5 text-cyan-400" />
+              Country Coordinators
+            </h3>
+            <div className="divide-y divide-slate-700">
+              {coordinators.map((coord) => (
+                <div key={coord.id} className="p-4 flex justify-between items-center">
+                  <div>
+                    <p className="text-white font-medium">{coord.name}</p>
+                    <p className="text-slate-400 text-xs">{coord.country}</p>
+                    <div className="flex gap-1 mt-1">
+                      {coord.assigned_regions?.map(region => (
+                        <span key={region} className="px-1.5 py-0.5 bg-slate-700 rounded text-xs text-slate-300">{region}</span>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
-              <h3 className="text-white font-semibold flex items-center gap-2 mb-4">
-                <UserCheck className="w-5 h-5 text-cyan-400" />
-                Assign New Coordinator
-              </h3>
-              <div className="space-y-4">
-                <select className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500">
-                  <option>Select Country</option>
-                  <option>Nigeria</option>
-                  <option>Kenya</option>
-                  <option>South Africa</option>
-                  <option>Ghana</option>
-                  <option>Rwanda</option>
-                </select>
-                <select className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500">
-                  <option>Select User</option>
-                  {users.filter(u => u.role === "Coordinator" && u.status === "Approved").map(u => (
-                    <option key={u.id} value={u.id}>{u.full_name}</option>
-                  ))}
-                </select>
-                <button className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white font-medium transition-colors">
-                  Assign Coordinator
-                </button>
-              </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`px-2 py-1 rounded-full text-xs ${coord.status === "Active" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
+                      {coord.status}
+                    </span>
+                    <button
+                      onClick={() => updateCoordinatorStatus(coord.id, coord.status === "Active" ? "Inactive" : "Active")}
+                      className="p-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 rounded-lg text-cyan-400 transition-colors"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -851,10 +968,6 @@ export default function AdminDashboard() {
         {/* Alerts Tab */}
         {activeTab === "alerts" && (
           <div className="space-y-4">
-            <button className="mb-4 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors inline-flex items-center gap-2">
-              <Bell className="w-4 h-4" />
-              Create New Alert
-            </button>
             {alerts.map((alert) => (
               <div key={alert.id} className={`p-4 rounded-xl border ${
                 alert.severity === "high" || alert.type === "critical" ? "bg-red-500/10 border-red-500/30" :
@@ -878,16 +991,13 @@ export default function AdminDashboard() {
                       </span>
                     )}
                   </div>
-                  <button className="p-1.5 hover:bg-slate-700 rounded-lg transition-colors">
-                    <ChevronRight className="w-4 h-4 text-slate-400" />
-                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Activity Feed and System Health - Bottom Row */}
+        {/* Activity Feed and System Health */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
           {/* Activity Feed */}
           <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
@@ -913,59 +1023,28 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* System Health & Quick Actions */}
-          <div className="space-y-6">
-            <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
-              <h3 className="text-white font-semibold flex items-center gap-2 mb-4">
-                <Activity className="w-5 h-5 text-cyan-400" />
-                System Health Monitoring
-              </h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400 text-sm">API Status</span>
-                  <span className="text-green-400 text-sm flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Operational</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400 text-sm">Database</span>
-                  <span className="text-green-400 text-sm flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Connected</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400 text-sm">Uptime</span>
-                  <span className="text-white text-sm font-mono">{systemHealth.uptime}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400 text-sm">Last Backup</span>
-                  <span className="text-white text-sm">{systemHealth.lastBackup}</span>
-                </div>
+          {/* System Health */}
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
+            <h3 className="text-white font-semibold flex items-center gap-2 mb-4">
+              <Activity className="w-5 h-5 text-cyan-400" />
+              System Health Monitoring
+            </h3>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 text-sm">API Status</span>
+                <span className="text-green-400 text-sm flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Operational</span>
               </div>
-            </div>
-
-            <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
-              <h3 className="text-white font-semibold flex items-center gap-2 mb-4">
-                <Zap className="w-5 h-5 text-cyan-400" />
-                Quick Actions
-              </h3>
-              <div className="grid grid-cols-2 gap-3">
-                <button className="p-3 bg-slate-700/50 hover:bg-slate-700 rounded-xl text-left transition-colors">
-                  <Download className="w-4 h-4 text-cyan-400 mb-2" />
-                  <p className="text-white text-sm">Export Report</p>
-                  <p className="text-slate-500 text-xs">Full governance report</p>
-                </button>
-                <button className="p-3 bg-slate-700/50 hover:bg-slate-700 rounded-xl text-left transition-colors">
-                  <Bell className="w-4 h-4 text-cyan-400 mb-2" />
-                  <p className="text-white text-sm">Broadcast Alert</p>
-                  <p className="text-slate-500 text-xs">Send to all users</p>
-                </button>
-                <button className="p-3 bg-slate-700/50 hover:bg-slate-700 rounded-xl text-left transition-colors">
-                  <Settings className="w-4 h-4 text-cyan-400 mb-2" />
-                  <p className="text-white text-sm">System Config</p>
-                  <p className="text-slate-500 text-xs">Governance settings</p>
-                </button>
-                <button className="p-3 bg-slate-700/50 hover:bg-slate-700 rounded-xl text-left transition-colors">
-                  <Calendar className="w-4 h-4 text-cyan-400 mb-2" />
-                  <p className="text-white text-sm">Schedule Review</p>
-                  <p className="text-slate-500 text-xs">Continental audit</p>
-                </button>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 text-sm">Database</span>
+                <span className="text-green-400 text-sm flex items-center gap-1"><div className="w-2 h-2 bg-green-500 rounded-full"></div> Connected</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 text-sm">Uptime</span>
+                <span className="text-white text-sm font-mono">{systemHealth.uptime}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 text-sm">Last Backup</span>
+                <span className="text-white text-sm">{systemHealth.lastBackup}</span>
               </div>
             </div>
           </div>

@@ -1,7 +1,7 @@
 // app/api/login/route.ts
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
-import bcrypt from "bcryptjs";
+import { supabaseAdmin } from "@/lib/supabase-admin";
+import { verifyPassword } from "@/lib/password-utils";
 import jwt from "jsonwebtoken";
 
 export async function POST(req: Request) {
@@ -9,7 +9,6 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { email, password } = body;
 
-    // Validate required fields
     if (!email || !password) {
       return NextResponse.json(
         { success: false, message: "Email and password are required" },
@@ -17,21 +16,29 @@ export async function POST(req: Request) {
       );
     }
 
-    // Find user in Supabase
-    const { data: user, error: userError } = await supabase
+    const cleanEmail = email.trim().toLowerCase();
+
+    console.log("Searching email:", cleanEmail);
+
+    const { data: user, error: userError } = await supabaseAdmin
       .from("users")
       .select("*")
-      .eq("email", email)
-      .single();
+      .ilike("email", cleanEmail)
+      .maybeSingle();
 
     if (userError || !user) {
+      console.log("User not found:", userError?.message);
       return NextResponse.json(
         { success: false, message: "Invalid email or password" },
         { status: 401 }
       );
     }
 
-    // Check if account is approved
+    console.log("User found:", user.id);
+    console.log("User status:", user.status);
+    console.log("User role:", user.role);
+
+    // Check account status
     if (user.status === "Pending") {
       return NextResponse.json(
         { 
@@ -46,7 +53,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { 
           success: false, 
-          message: "Your account application was rejected. Please contact support for more information." 
+          message: "Your account application was rejected. Please contact support." 
         },
         { status: 403 }
       );
@@ -62,13 +69,29 @@ export async function POST(req: Request) {
       );
     }
 
-    // Compare password
-    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!user.password_hash) {
+      console.log("No password hash found");
+      return NextResponse.json(
+        { success: false, message: "Invalid email or password" },
+        { status: 401 }
+      );
+    }
+
+    const isMatch = await verifyPassword(password, user.password_hash);
+    console.log("Password match result:", isMatch);
 
     if (!isMatch) {
       return NextResponse.json(
         { success: false, message: "Invalid email or password" },
         { status: 401 }
+      );
+    }
+
+    if (!process.env.JWT_SECRET) {
+      console.error("JWT_SECRET is not defined");
+      return NextResponse.json(
+        { success: false, message: "Server configuration error" },
+        { status: 500 }
       );
     }
 
@@ -80,17 +103,18 @@ export async function POST(req: Request) {
         role: user.role,
         full_name: user.full_name,
       },
-      process.env.JWT_SECRET as string,
+      process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
+    console.log("JWT Token created successfully");
+
     // Update last login time
-    await supabase
+    await supabaseAdmin
       .from("users")
       .update({ last_login: new Date().toISOString() })
       .eq("id", user.id);
 
-    // Return user data (excluding sensitive fields)
     const userData = {
       id: user.id,
       full_name: user.full_name,
@@ -102,64 +126,30 @@ export async function POST(req: Request) {
       created_at: user.created_at,
     };
 
-    return NextResponse.json({
+    console.log("Login successful, returning user data:", userData);
+
+    // Return with proper headers
+    const response = NextResponse.json({
       success: true,
       message: "Login successful",
       token,
       user: userData,
     });
+
+    // Also set cookie for additional persistence
+    response.cookies.set("auth_token", token, {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: "/",
+    });
+
+    return response;
   } catch (error) {
     console.error("Login error:", error);
     return NextResponse.json(
       { success: false, message: "Login failed. Please try again." },
-      { status: 500 }
-    );
-  }
-}
-
-// Optional: GET to check session validity
-export async function GET(req: Request) {
-  try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.split(" ")[1];
-
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "No token provided" },
-        { status: 401 }
-      );
-    }
-
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as any;
-      
-      const { data: user, error } = await supabase
-        .from("users")
-        .select("id, full_name, email, role, organization, country, status")
-        .eq("id", decoded.id)
-        .single();
-
-      if (error || !user) {
-        return NextResponse.json(
-          { success: false, message: "Invalid token" },
-          { status: 401 }
-        );
-      }
-
-      return NextResponse.json({
-        success: true,
-        user,
-      });
-    } catch (jwtError) {
-      return NextResponse.json(
-        { success: false, message: "Invalid or expired token" },
-        { status: 401 }
-      );
-    }
-  } catch (error) {
-    console.error("Session check error:", error);
-    return NextResponse.json(
-      { success: false, message: "Failed to validate session" },
       { status: 500 }
     );
   }

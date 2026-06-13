@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { hashPassword } from "@/lib/password-utils";
 import {
   User,
   Mail,
@@ -15,7 +16,6 @@ import {
   CheckCircle,
   AlertCircle,
   ArrowLeft,
-  Heart,
   Shield,
 } from "lucide-react";
 
@@ -93,45 +93,45 @@ export default function IndividualSignupPage() {
     }
 
     try {
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            full_name: formData.full_name,
-            role: formData.role,
-            country: formData.country,
-            organization: formData.organization,
-          },
-        },
-      });
+      // Check if user already exists
+      const { data: existingUser } = await supabase
+        .from("users")
+        .select("id")
+        .eq("email", formData.email)
+        .single();
 
-      if (authError) {
-        setError(authError.message);
+      if (existingUser) {
+        setError("User with this email already exists");
         setLoading(false);
         return;
       }
 
-      if (authData.user) {
-        // Insert into users table
-        const { error: insertError } = await supabase
-          .from("users")
-          .insert({
-            id: authData.user.id,
-            full_name: formData.full_name,
-            email: formData.email,
-            role: formData.role,
-            status: "Pending",
-            country: formData.country || null,
-            organization: formData.organization || null,
-            created_at: new Date().toISOString(),
-          });
+      // Hash password using the shared utility
+      const hashedPassword = await hashPassword(formData.password);
+      
+      console.log("Password hashed successfully, length:", hashedPassword.length);
 
-        if (insertError) {
-          console.error("Error inserting user:", insertError);
-          // Continue anyway, the auth user is created
-        }
+      const userId = crypto.randomUUID();
+
+      const { error: insertError } = await supabase
+        .from("users")
+        .insert({
+          id: userId,
+          full_name: formData.full_name,
+          email: formData.email.toLowerCase(),
+          password_hash: hashedPassword,
+          role: formData.role,
+          status: "Pending",
+          country: formData.country || null,
+          organization: formData.organization || null,
+          created_at: new Date().toISOString(),
+        });
+
+      if (insertError) {
+        console.error("Insert error:", insertError);
+        setError(insertError.message || "Failed to create account");
+        setLoading(false);
+        return;
       }
 
       setSuccess(true);

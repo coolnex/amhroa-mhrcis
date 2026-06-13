@@ -1,6 +1,6 @@
 // app/api/organizations/route.ts
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function GET(req: Request) {
   try {
@@ -9,7 +9,7 @@ export async function GET(req: Request) {
     const country = searchParams.get("country");
     const type = searchParams.get("type");
 
-    let query = supabase
+    let query = supabaseAdmin
       .from("organizations")
       .select(`
         *,
@@ -45,7 +45,6 @@ export async function GET(req: Request) {
       );
     }
 
-    // Get additional metrics
     const metrics = {
       total: data?.length || 0,
       approved: data?.filter(o => o.status === "Approved").length || 0,
@@ -103,7 +102,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("organizations")
       .insert({
         name: name,
@@ -151,7 +150,6 @@ export async function POST(req: Request) {
   }
 }
 
-// PATCH endpoint for updating organization status (admin only)
 export async function PATCH(req: Request) {
   try {
     const body = await req.json();
@@ -173,7 +171,7 @@ export async function PATCH(req: Request) {
       updateData.approval_notes = approval_notes;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("organizations")
       .update(updateData)
       .eq("id", id)
@@ -201,7 +199,6 @@ export async function PATCH(req: Request) {
   }
 }
 
-// DELETE endpoint for removing an organization
 export async function DELETE(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -214,7 +211,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("organizations")
       .delete()
       .eq("id", id);

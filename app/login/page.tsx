@@ -1,10 +1,11 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+
 import {
   Mail,
   Lock,
@@ -12,326 +13,286 @@ import {
   EyeOff,
   Loader2,
   AlertCircle,
-  ArrowLeft,
-  Heart,
   Shield,
-  CheckCircle,
+  Globe,
+  Users,
+  FileText,
 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
+
+  const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  const [showPassword, setShowPassword] = useState(false);
+
+  const [error, setError] = useState("");
+
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [rememberMe, setRememberMe] = useState(false);
-  const [isCheckingSession, setIsCheckingSession] = useState(true);
 
-  // Check if user is already logged in
   useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          // Fetch user profile to verify role
-          const { data: profile } = await supabase
-            .from("users")
-            .select("*")
-            .eq("id", session.user.id)
-            .single();
-          
-          if (profile) {
-            localStorage.setItem("user", JSON.stringify(profile));
-            const role = profile.role?.toLowerCase();
-            const roleRedirects: Record<string, string> = {
-              admin: "/admin",
-              policymaker: "/dashboard",
-              researcher: "/dashboard",
-              cso: "/dashboard",
-              coordinator: "/dashboard",
-              donor: "/dashboard",
-              mental_health_professional: "/dashboard",
-            };
-            const redirectPath = roleRedirects[role] || "/dashboard";
-            router.push(redirectPath);
-            return;
-          }
-        }
-      } catch (err) {
-        console.error("Session check error:", err);
-      } finally {
-        setIsCheckingSession(false);
-      }
-    };
     checkSession();
-  }, [router]);
+  }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const checkSession = async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        setCheckingSession(false);
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", session.user.id)
+        .single();
+
+      if (!profile) {
+        setCheckingSession(false);
+        return;
+      }
+
+      redirectUser(profile.role);
+    } catch (error) {
+      console.log(error);
+      setCheckingSession(false);
+    } finally {
+      setCheckingSession(false);
+    }
+  };
+
+  const redirectUser = (role: string) => {
+    console.log("Redirecting user with role:", role);
+    
+    switch (role?.toLowerCase()) {
+      case "admin":
+        console.log("Redirecting to /admin");
+        router.push("/admin");
+        break;
+
+      case "policymaker":
+      case "researcher":
+      case "cso":
+      case "coordinator":
+      case "donor":
+      case "mental_health_professional":
+        console.log("Redirecting to /dashboard");
+        router.push("/dashboard");
+        break;
+
+      default:
+        console.log("Redirecting to /");
+        router.push("/");
+    }
+  };
+
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    setError("");
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
-    // Clear error when user starts typing
-    if (error) setError(null);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (
+    e: React.FormEvent<HTMLFormElement>
+  ) => {
     e.preventDefault();
+  
     setLoading(true);
-    setError(null);
-
-    // Basic validation
-    if (!formData.email || !formData.password) {
-      setError("Please enter both email and password");
-      setLoading(false);
-      return;
-    }
-
+    setError("");
+  
     try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: formData.email,
-        password: formData.password,
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+        }),
       });
-
-      if (authError) {
-        if (authError.message === "Invalid login credentials") {
-          setError("Invalid email or password. Please try again.");
-        } else {
-          setError(authError.message);
-        }
+  
+      const data = await response.json();
+  
+      console.log("LOGIN RESPONSE:", data);
+  
+      if (!data.success) {
+        setError(data.message);
         setLoading(false);
         return;
       }
-
-      if (!data.user) {
-        setError("Unable to authenticate. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      // Fetch user profile from users table
-      const { data: profile, error: profileError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", data.user.id)
-        .single();
-
-      if (profileError || !profile) {
-        console.error("Profile fetch error:", profileError);
-        setError("User profile not found. Please contact support.");
-        setLoading(false);
-        await supabase.auth.signOut();
-        return;
-      }
-
-      // Check if account is approved
-      if (profile.status === "Pending") {
-        setError("Your account is pending approval. You will receive an email once approved.");
-        setLoading(false);
-        await supabase.auth.signOut();
-        return;
-      }
-
-      if (profile.status === "Rejected") {
-        setError("Your account application was rejected. Please contact support for more information.");
-        setLoading(false);
-        await supabase.auth.signOut();
-        return;
-      }
-
-      // Store user in localStorage
-      const userData = {
-        id: profile.id,
-        full_name: profile.full_name,
-        email: profile.email,
-        role: profile.role,
-        organization: profile.organization,
-        country: profile.country,
-        status: profile.status,
-      };
-      
-      localStorage.setItem("user", JSON.stringify(userData));
-      
-      // Store session in localStorage if remember me is checked
-      if (rememberMe) {
-        localStorage.setItem("rememberMe", "true");
-      }
-
-      // Redirect based on role
-      const role = profile.role?.toLowerCase();
-      const roleRedirects: Record<string, string> = {
-        admin: "/admin",
-        policymaker: "/dashboard",
-        researcher: "/dashboard",
-        cso: "/dashboard",
-        coordinator: "/dashboard",
-        donor: "/dashboard",
-        mental_health_professional: "/dashboard",
-      };
-
-      const redirectPath = roleRedirects[role] || "/dashboard";
-      router.push(redirectPath);
-      
-    } catch (err) {
-      console.error("Login error:", err);
-      setError("An unexpected error occurred. Please try again.");
+  
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("user", JSON.stringify(data.user));
+  
+      console.log("Stored User:", localStorage.getItem("user"));
+      console.log("User role:", data.user.role);
+  
+      // Small delay to ensure localStorage is set before redirect
+      setTimeout(() => {
+        redirectUser(data.user.role);
+      }, 100);
+  
+    } catch (error) {
+      console.error(error);
+      setError("Something went wrong. Please try again.");
+      setLoading(false);
     } finally {
       setLoading(false);
     }
   };
 
-  // Show loading state while checking session
-  if (isCheckingSession) {
+  if (checkingSession) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-400">Loading...</p>
-        </div>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-cyan-500" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 flex items-center justify-center p-6">
-      <div className="w-full max-w-md">
-        {/* Logo - Fixed height to prevent layout shift */}
-        <div className="text-center mb-8">
-          <div className="bg-gradient-to-r from-cyan-500 to-blue-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <Image
-              src="/logo.png"
-              alt="AMHROA Logo"
-              width={80}
-              height={80}
-              className="object-contain"
-            />
-          </div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-            Welcome Back
-          </h1>
-          <p className="text-slate-400 mt-2">Sign in to your account</p>
-        </div>
+    <main className="min-h-screen bg-slate-950 flex">
 
-        {/* Form Card - Fixed dimensions */}
-        <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-8">
-          {/* Error Message - Fixed height area */}
-          <div className="mb-6 min-h-[80px]">
+      {/* LEFT PANEL */}
+      <section className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-cyan-950 via-slate-950 to-blue-950">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-cyan-500/10 blur-[140px]" />
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-500/10 blur-[140px]" />
+
+        <div className="relative z-10 flex flex-col justify-between p-12 w-full">
+          <div>
+            <Image
+              src="/logo.png"
+              alt="AMHROA"
+              width={120}
+              height={120}
+              className="mb-8"
+            />
+            <span className="inline-flex px-4 py-2 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-sm">
+              Continental Governance Platform
+            </span>
+            <h1 className="text-5xl font-bold text-white mt-8 leading-tight">
+              African Mental Health Reform Observatory
+            </h1>
+            <p className="text-slate-300 mt-6 text-lg max-w-xl leading-relaxed">
+              Empowering governments, researchers, donors, mental health professionals,
+              and organizations with trusted governance data, research intelligence,
+              reform monitoring, and collaboration opportunities across Africa.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-6">
+            <div>
+              <Globe className="w-8 h-8 text-cyan-400 mb-3" />
+              <h3 className="text-3xl font-bold text-white">54</h3>
+              <p className="text-slate-400">Countries</p>
+            </div>
+            <div>
+              <Users className="w-8 h-8 text-cyan-400 mb-3" />
+              <h3 className="text-3xl font-bold text-white">500+</h3>
+              <p className="text-slate-400">Organizations</p>
+            </div>
+            <div>
+              <FileText className="w-8 h-8 text-cyan-400 mb-3" />
+              <h3 className="text-3xl font-bold text-white">10K+</h3>
+              <p className="text-slate-400">Reports</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* RIGHT PANEL */}
+      <section className="w-full lg:w-1/2 flex items-center justify-center p-8">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8 lg:hidden">
+            <Image src="/logo.png" alt="AMHROA" width={80} height={80} className="mx-auto" />
+          </div>
+
+          <div className="backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl rounded-3xl p-8">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 flex items-center justify-center mb-4">
+                <Shield className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-4xl font-bold text-white">Welcome Back</h2>
+              <p className="text-slate-400 mt-2">Sign in to AMHROA Portal</p>
+            </div>
+
             {error && (
-              <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-red-400 text-sm font-semibold">Login Failed</p>
-                  <p className="text-red-300/80 text-sm">{error}</p>
-                </div>
+              <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex gap-3">
+                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                <p className="text-red-300 text-sm">{error}</p>
               </div>
             )}
-          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email Field */}
-            <div>
-              <label className="text-slate-400 text-sm block mb-2">Email Address</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-11 pr-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                />
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Email Address</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                    className="w-full bg-slate-900/60 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-white focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 outline-none"
+                  />
+                </div>
               </div>
-            </div>
 
-            {/* Password Field */}
-            <div>
-              <label className="text-slate-400 text-sm block mb-2">Password</label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-11 pr-11 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    name="password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    required
+                    className="w-full bg-slate-900/60 border border-slate-700 rounded-xl pl-11 pr-12 py-3 text-white focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-cyan-400"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
-            </div>
 
-            {/* Remember Me & Forgot Password */}
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 accent-cyan-500 rounded"
-                />
-                <span className="text-slate-400 text-sm">Remember me</span>
-              </label>
-              <Link href="/forgot-password" className="text-cyan-400 hover:text-cyan-300 text-sm transition-colors">
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-semibold transition-all disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Sign In"}
+              </button>
+            </form>
+
+            <div className="mt-6 text-center space-y-2">
+              <Link href="/signup" className="block text-cyan-400 hover:text-cyan-300">
+                Create Account
+              </Link>
+              <Link href="/forgot-password" className="block text-slate-400 hover:text-white">
                 Forgot Password?
               </Link>
             </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 rounded-xl text-white font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Signing In...
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-5 h-5" />
-                  Sign In
-                </>
-              )}
-            </button>
-          </form>
-
-          {/* Sign Up Link */}
-          <div className="mt-6 text-center">
-            <p className="text-slate-400 text-sm">
-              Don't have an account?{" "}
-              <Link href="/signup" className="text-cyan-400 hover:text-cyan-300 font-medium">
-                Create Account
-              </Link>
-            </p>
           </div>
         </div>
-
-        {/* Info Box - Fixed height */}
-        <div className="mt-6 p-4 bg-cyan-600/10 rounded-xl border border-cyan-500/20">
-          <div className="flex items-start gap-3">
-            <Shield className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-white text-sm font-semibold">Secure Access</p>
-              <p className="text-slate-400 text-xs mt-1">
-                Your credentials are encrypted and secure. Never share your password with anyone.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

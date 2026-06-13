@@ -1,9 +1,9 @@
 "use client";
 
+import { supabase } from "@/lib/supabase";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
@@ -157,18 +157,12 @@ const navigationGroups = {
   },
 };
 
-// components/Sidebar.tsx - Add these props
 interface SidebarProps {
   collapsed?: boolean;
   onToggle?: () => void;
-  variant?: string;        // Add this
-  activeItem?: string;     // Add this
-  userRole?: string;       // Add this
-  userName?: string;       // Add this
 }
 
-
-export default function Sidebar({ collapsed = false, onToggle, variant,  }: SidebarProps) {
+export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [userRole, setUserRole] = useState<UserRole>("public");
@@ -184,12 +178,33 @@ export default function Sidebar({ collapsed = false, onToggle, variant,  }: Side
 
   useEffect(() => {
     checkUserSession();
-  }, []);
+  }, [pathname]);
 
   const checkUserSession = async () => {
     setLoading(true);
     try {
-      // Get session from Supabase
+      // First check localStorage for JWT token (your custom auth)
+      const token = localStorage.getItem("token");
+      const userStr = localStorage.getItem("user");
+
+      console.log("Sidebar - Token exists:", !!token);
+      console.log("Sidebar - User string exists:", !!userStr);
+      console.log("Sidebar - Pathname:", pathname);
+
+      // Check if user is authenticated via localStorage
+      if (token && userStr) {
+        const userData = JSON.parse(userStr);
+        console.log("Sidebar - User role from localStorage:", userData.role);
+        
+        setIsAuthenticated(true);
+        setUserRole(userData.role.toLowerCase() as UserRole);
+        setUserName(userData.full_name || "User");
+        setUserEmail(userData.email || "");
+        setLoading(false);
+        return;
+      }
+
+      // If no localStorage, check Supabase session (fallback)
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
@@ -202,6 +217,7 @@ export default function Sidebar({ collapsed = false, onToggle, variant,  }: Side
           pathname === "/login" ||
           pathname === "/signup" ||
           pathname === "/signup/user" ||
+          pathname === '/reset-password' ||  
           pathname === "/signup/organizations" ||
           pathname === "/about" ||
           pathname === "/contact" ||
@@ -211,19 +227,18 @@ export default function Sidebar({ collapsed = false, onToggle, variant,  }: Side
           pathname.startsWith("/public");
         
         if (!isPublicRoute && pathname !== "/") {
+          console.log("No auth, redirecting to login");
           router.push("/login");
         }
         setLoading(false);
         return;
       }
       
-      // User is authenticated
+      // User is authenticated via Supabase
       setIsAuthenticated(true);
       
-      // Get user role from metadata or localStorage
       let role = session.user.user_metadata?.role || "public";
       
-      // Also check users table for role if not in metadata
       if (role === "public") {
         const { data: userData } = await supabase
           .from("users")
@@ -250,9 +265,16 @@ export default function Sidebar({ collapsed = false, onToggle, variant,  }: Side
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    // Clear localStorage
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    
+    // Clear cookies if any
+    document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    
+    // Also sign out from Supabase if needed
+    await supabase.auth.signOut();
+    
     router.push("/login");
   };
 
@@ -482,19 +504,4 @@ export default function Sidebar({ collapsed = false, onToggle, variant,  }: Side
   );
 }
 
-// CSS for custom scrollbar (add to your global CSS file)
-export const scrollbarStyles = `
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: #1e293b;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #06b6d4;
-  border-radius: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #0891b2;
-}
-`;
+// Add this import at the top

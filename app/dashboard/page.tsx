@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+
 import {
   LayoutDashboard,
   Users,
@@ -40,6 +42,7 @@ interface User {
   country?: string;
   organization?: string;
   avatar?: string;
+  status?: string;
 }
 
 interface DashboardMetric {
@@ -66,7 +69,7 @@ interface QuickLink {
 }
 
 // Role-specific configurations
-const roleConfig = {
+const roleConfig: Record<string, any> = {
   Admin: {
     title: "Continental Control Center",
     description: "Platform governance and continental oversight dashboard",
@@ -77,8 +80,8 @@ const roleConfig = {
       { title: "System Health", value: "98%", change: 2, icon: Activity, color: "purple" },
     ],
     quickLinks: [
-      { title: "User Management", href: "/admin/users", description: "Approve and manage users", icon: Users },
-      { title: "Organization Approvals", href: "/admin/organizations", description: "Review CSO applications", icon: Building2 },
+      { title: "User Management", href: "/admin", description: "Approve and manage users", icon: Users },
+      { title: "Organization Approvals", href: "/organizations", description: "Review CSO applications", icon: Building2 },
       { title: "Reports Review", href: "/admin/reports", description: "Validate submissions", icon: FileText },
       { title: "System Settings", href: "/admin/settings", description: "Configure platform", icon: Settings },
     ],
@@ -159,13 +162,13 @@ const roleConfig = {
     quickLinks: [
       { title: "Investment Map", href: "/donor/map", description: "View opportunities", icon: Globe },
       { title: "Project Pipeline", href: "/donor/projects", description: "Review proposals", icon: Target },
-      { title: "Impact Reports", href: "/donor/impact", description: "Track outcomes", icon: BarChart3 },
+      { title: "Impact Reports", href: "/impact-reports", description: "Track outcomes", icon: BarChart3 },
       { title: "Funding Portfolio", href: "/donor/portfolio", description: "Manage investments", icon: TrendingUp },
     ],
   },
 };
 
-// Mock recent activities
+// Get recent activities based on role
 const getRecentActivities = (role: string): RecentActivity[] => {
   const baseActivities = [
     { id: "1", action: "Report Submitted", description: "Q4 2024 Reform Report", timestamp: "2 hours ago", type: "success" as const },
@@ -185,51 +188,93 @@ const getRecentActivities = (role: string): RecentActivity[] => {
   return baseActivities;
 };
 
+// Get greeting based on time
+const getGreeting = (): string => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+};
+
+// Get current time
+const getCurrentTime = (): string => {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 export default function DashboardPage() {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const [greeting, setGreeting] = useState("");
   const [currentTime, setCurrentTime] = useState("");
   const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
+    const checkAuth = async () => {
+      try {
+        const userStr = localStorage.getItem("user");
+        const token = localStorage.getItem("token");
 
-    if (!storedUser) {
-      window.location.href = "/login";
-      return;
-    }
+        console.log("Dashboard - User:", userStr);
+        console.log("Dashboard - Token:", token);
 
-    const parsedUser = JSON.parse(storedUser);
-    setUser(parsedUser);
+        if (!userStr || !token) {
+          console.log("No user/token found, redirecting to login");
+          router.push("/login");
+          return;
+        }
 
-    // Set greeting based on time of day
-    const hour = new Date().getHours();
-    if (hour < 12) setGreeting("Good morning");
-    else if (hour < 18) setGreeting("Good afternoon");
-    else setGreeting("Good evening");
+        const userData = JSON.parse(userStr);
+        console.log("Dashboard - User role:", userData.role);
+        
+        // Check if user is approved
+        if (userData.status !== "Approved") {
+          console.log("User not approved, redirecting to login");
+          router.push("/login?message=Account pending approval");
+          return;
+        }
+        
+        setUser(userData);
+        setGreeting(getGreeting());
+        setCurrentTime(getCurrentTime());
+        setRecentActivities(getRecentActivities(userData.role));
+        
+        // Update time every minute
+        const interval = setInterval(() => {
+          setCurrentTime(getCurrentTime());
+        }, 60000);
+        
+        return () => clearInterval(interval);
+      } catch (error) {
+        console.error("Dashboard error:", error);
+        router.push("/login");
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    // Set current time
-    setCurrentTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-
-    // Set recent activities based on role
-    setRecentActivities(getRecentActivities(parsedUser.role));
-  }, []);
+    checkAuth();
+  }, [router]);
 
   const logout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    window.location.href = "/login";
+    router.push("/login");
   };
 
-  if (!user) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-slate-300">Loading your dashboard...</p>
         </div>
       </div>
     );
+  }
+
+  if (!user) {
+    return null;
   }
 
   const config = roleConfig[user.role] || roleConfig.Policymaker;
@@ -237,7 +282,7 @@ export default function DashboardPage() {
   const quickLinks = config.quickLinks;
 
   const getMetricColorClasses = (color: string) => {
-    const colors = {
+    const colors: Record<string, string> = {
       cyan: "bg-cyan-500/10 border-cyan-500/20 text-cyan-400",
       emerald: "bg-emerald-500/10 border-emerald-500/20 text-emerald-400",
       yellow: "bg-yellow-500/10 border-yellow-500/20 text-yellow-400",
@@ -245,7 +290,7 @@ export default function DashboardPage() {
       blue: "bg-blue-500/10 border-blue-500/20 text-blue-400",
       red: "bg-red-500/10 border-red-500/20 text-red-400",
     };
-    return colors[color as keyof typeof colors] || colors.cyan;
+    return colors[color] || colors.cyan;
   };
 
   return (
@@ -294,7 +339,7 @@ export default function DashboardPage() {
       <div className="px-4 md:px-8 py-6">
         {/* Metrics Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {metrics.map((metric, idx) => {
+          {metrics.map((metric: DashboardMetric, idx: number) => {
             const Icon = metric.icon;
             const colorClasses = getMetricColorClasses(metric.color);
             return (
@@ -331,7 +376,7 @@ export default function DashboardPage() {
                 </Link>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {quickLinks.map((link, idx) => {
+                {quickLinks.map((link: QuickLink, idx: number) => {
                   const Icon = link.icon;
                   return (
                     <Link
@@ -365,7 +410,10 @@ export default function DashboardPage() {
                 <Activity className="w-5 h-5 text-cyan-400" />
                 Recent Activity
               </h2>
-              <button className="text-slate-400 hover:text-cyan-400 text-sm transition-colors">
+              <button 
+                onClick={() => setRecentActivities(getRecentActivities(user.role))}
+                className="text-slate-400 hover:text-cyan-400 text-sm transition-colors"
+              >
                 <RefreshCw className="w-4 h-4" />
               </button>
             </div>
