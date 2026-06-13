@@ -14,7 +14,14 @@ interface StateSelectProps {
   className?: string;
 }
 
-export function StateSelect({ countryCode, value, onChange, placeholder = "Select state/region", required, className = "" }: StateSelectProps) {
+export function StateSelect({ 
+  countryCode, 
+  value, 
+  onChange, 
+  placeholder = "Select state/region", 
+  required, 
+  className = "" 
+}: StateSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [states, setStates] = useState<{ id: string; name: string; type: string }[]>([]);
 
@@ -73,4 +80,4 @@ export function StateSelect({ countryCode, value, onChange, placeholder = "Selec
       )}
     </div>
   );
-} 
+}

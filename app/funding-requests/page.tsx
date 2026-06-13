@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import {
   Target,
@@ -55,6 +56,7 @@ const categories = [
 ];
 
 export default function FundingRequestsPage() {
+  const router = useRouter();
   const [requests, setRequests] = useState<FundingRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
@@ -80,15 +82,25 @@ export default function FundingRequestsPage() {
   }, []);
 
   const checkUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      setUser(user);
-      const { data: profile } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-      setUserRole(profile?.role || "");
+    // Check localStorage for JWT token (custom auth)
+    const token = localStorage.getItem("token");
+    const userStr = localStorage.getItem("user");
+
+    if (!token || !userStr) {
+      router.push("/login");
+      return;
+    }
+
+    try {
+      const userData = JSON.parse(userStr);
+      console.log("Funding Requests - User:", userData);
+      console.log("Funding Requests - User Role:", userData.role);
+      
+      setUser(userData);
+      setUserRole(userData.role || "");
+    } catch (error) {
+      console.error("Error parsing user data:", error);
+      router.push("/login");
     }
   };
 
@@ -106,9 +118,18 @@ export default function FundingRequestsPage() {
           )
         `)
         .order("created_at", { ascending: false });
-
+  
+      // For donors, only show Approved/Open requests
+      if (userRole === "donor") {
+        query = query.in("status", ["Approved", "Open", "Funded"]);
+      }
+      // For researchers, show their own requests plus approved ones
+      else if (userRole === "researcher") {
+        query = query.or(`researcher_id.eq.${user?.id},status.in.(Approved,Open,Funded)`);
+      }
+  
       const { data, error } = await query;
-
+  
       if (error) throw error;
       setRequests(data || []);
     } catch (error) {
@@ -118,13 +139,18 @@ export default function FundingRequestsPage() {
     }
   };
 
+  // Update your handleCreateRequest function in funding-requests/page.tsx
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
+    console.log("User object:", user);
+    console.log("User ID:", user.id);
+    console.log("Form data:", formData);
+
     setSubmitting(true);
     try {
-      const { error } = await supabase.from("funding_requests").insert({
+      const requestData = {
         researcher_id: user.id,
         title: formData.title,
         description: formData.description,
@@ -132,11 +158,29 @@ export default function FundingRequestsPage() {
         amount_raised: 0,
         country: formData.country,
         category: formData.category,
-        status: "Open",
+        status: "Pending", // Use Pending instead of Open for admin approval
         deadline: formData.deadline,
-      });
+        created_at: new Date().toISOString(),
+      };
 
-      if (error) throw error;
+      console.log("Inserting data:", requestData);
+
+      const { data, error } = await supabase
+        .from("funding_requests")
+        .insert(requestData)
+        .select();
+
+      if (error) {
+        console.error("Supabase error details:", error);
+        console.error("Error code:", error.code);
+        console.error("Error message:", error.message);
+        console.error("Error details:", error.details);
+        alert(`Error: ${error.message}`);
+        setSubmitting(false);
+        return;
+      }
+
+      console.log("Insert success:", data);
 
       setShowCreateModal(false);
       setFormData({
@@ -158,6 +202,16 @@ export default function FundingRequestsPage() {
   };
 
   const handleFundRequest = async (requestId: string, amount: number) => {
+    if (!user) {
+      alert("Please login to fund projects");
+      return;
+    }
+
+    if (userRole !== "Donor" && userRole !== "Admin") {
+      alert("Only donors and administrators can fund projects");
+      return;
+    }
+
     const investmentAmount = prompt(`Enter investment amount for this project (max $${amount.toLocaleString()}):`);
     if (!investmentAmount) return;
 
@@ -174,7 +228,7 @@ export default function FundingRequestsPage() {
     try {
       // Create transaction
       const { error: txError } = await supabase.from("transactions").insert({
-        donor_id: user?.id,
+        donor_id: user.id,
         funding_request_id: requestId,
         amount: amountNum,
         platform_fee: platformFee,
@@ -226,6 +280,15 @@ export default function FundingRequestsPage() {
     raisedAmount: requests.reduce((sum, r) => sum + (r.amount_raised || 0), 0),
   };
 
+  // Determine what actions to show based on user role
+  const canCreateRequest = userRole === "Researcher" || userRole === "Admin";
+  const canFundProject = userRole === "Donor" || userRole === "Admin";
+  const canViewDetails = userRole === "Admin" || userRole === "Researcher";
+
+  console.log("User Role:", userRole);
+  console.log("Can Create Request:", canCreateRequest);
+  console.log("Can Fund Project:", canFundProject);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
@@ -260,7 +323,7 @@ export default function FundingRequestsPage() {
             </div>
 
             <div className="flex gap-2">
-              {(userRole === "researcher" || userRole === "admin") && (
+              {canCreateRequest && (
                 <button
                   onClick={() => setShowCreateModal(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors"
@@ -402,7 +465,7 @@ export default function FundingRequestsPage() {
                         <p className="text-slate-500 text-xs">{request.researcher?.organization}</p>
                       </div>
                     </div>
-                    {userRole === "donor" && request.status === "Open" && (
+                    {canFundProject && request.status === "Open" && (
                       <button
                         onClick={() => handleFundRequest(request.id, request.amount_needed - request.amount_raised)}
                         className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors"
@@ -410,7 +473,7 @@ export default function FundingRequestsPage() {
                         Fund Project
                       </button>
                     )}
-                    {(userRole === "admin" || userRole === "researcher") && (
+                    {canViewDetails && (
                       <button className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm transition-colors">
                         View Details
                       </button>
