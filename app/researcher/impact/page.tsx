@@ -13,6 +13,7 @@ import {
   FileText,
   DollarSign,
   Globe,
+  AlertCircle,
   Calendar,
   BarChart3,
   PieChart,
