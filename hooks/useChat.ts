@@ -1,5 +1,5 @@
+// hooks/useChat.ts
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { chatService } from '@/lib/chat-service';
 import { supabase } from '@/lib/supabase';
 
 interface Message {
@@ -33,6 +33,7 @@ const isValidUUID = (id: string) => {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   return uuidRegex.test(id);
 };
+
 export function useChat(userId: string) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
@@ -40,6 +41,8 @@ export function useChat(userId: string) {
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
   
   const userIdRef = useRef<string>(userId);
+  const channelRef = useRef<any>(null);
+  const isSubscribedRef = useRef<boolean>(false);
 
   useEffect(() => {
     userIdRef.current = userId;
@@ -48,15 +51,16 @@ export function useChat(userId: string) {
   const fetchConversations = useCallback(async () => {
     const currentUserId = userIdRef.current;
     
-    // CRITICAL: Stop execution if there is no user, or if they are a guest (invalid UUID)
+    // Stop if no user or invalid UUID
     if (!currentUserId || !isValidUUID(currentUserId)) {
-      console.log('ℹ️ Guest user or invalid UUID detected. Skipping database conversation fetch.');
+      console.log('ℹ️ Invalid user ID, skipping conversation fetch.');
       setLoading(false);
       return;
     }
 
     try {
       setLoading(true);
+      
       const { data: convs, error } = await supabase
         .from('chat_conversations')
         .select('*')
@@ -65,7 +69,7 @@ export function useChat(userId: string) {
 
       if (error) throw error;
 
-      // Map unread counts safely...
+      // Map unread counts
       const conversationsWithCounts = await Promise.all(
         (convs || []).map(async (conv) => {
           const { count, error: countError } = await supabase
@@ -87,110 +91,117 @@ export function useChat(userId: string) {
     }
   }, []);
 
-  // Real-time Event Subscription Safeguard
-  // Inside hooks/useChat.ts
+  // Real-time subscription
+  useEffect(() => {
+    const currentUserId = userIdRef.current;
+    if (!currentUserId || !isValidUUID(currentUserId)) {
+      return;
+    }
 
-useEffect(() => {
-  const currentUserId = userIdRef.current;
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!currentUserId || !uuidRegex.test(currentUserId)) return;
+    // Clean up previous subscription
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+      isSubscribedRef.current = false;
+    }
 
-  // Track a generic user feed room channel
-  const channelName = `chat_global_stream_${currentUserId}`;
-  chatService.trackChannel(channelName);
+    const channelName = `chat_user_${currentUserId}`;
+    const chatChannel = supabase.channel(channelName);
 
-  const chatChannel = supabase.channel(channelName);
+    chatChannel.on(
+      'postgres_changes',
+      { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'chat_messages' 
+      },
+      (payload) => {
+        const newMessage = payload.new as Message;
+        
+        // Only process if user is a participant
+        const conversation = conversations.find(c => c.id === newMessage.conversation_id);
+        if (!conversation || !conversation.participant_ids.includes(currentUserId)) {
+          return;
+        }
 
-  // A. Listen for Instant WebSocket Broadcast payloads (Faster than DB storage events)
-  chatChannel.on('broadcast', { event: 'shuttle_msg' }, (payload) => {
-    const newMessage = payload.payload as Message;
-    console.log("⚡ Instant WebSocket message received:", newMessage);
+        setMessages(prev => {
+          const currentRoomMessages = prev[newMessage.conversation_id] || [];
+          if (currentRoomMessages.some(m => m.id === newMessage.id)) return prev;
+          return {
+            ...prev,
+            [newMessage.conversation_id]: [...currentRoomMessages, newMessage]
+          };
+        });
 
-    setMessages(prev => {
-      const currentRoomMessages = prev[newMessage.conversation_id] || [];
-      if (currentRoomMessages.some(m => m.id === newMessage.id)) return prev;
-      return {
-        ...prev,
-        [newMessage.conversation_id]: [...currentRoomMessages, newMessage]
-      };
+        setConversations(prev => prev.map(c => 
+          c.id === newMessage.conversation_id 
+            ? { ...c, last_message: newMessage.message, last_message_at: newMessage.created_at }
+            : c
+        ));
+      }
+    );
+
+    chatChannel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log('📡 Real-time chat subscribed.');
+        isSubscribedRef.current = true;
+      }
     });
 
-    setConversations(prev => prev.map(c => 
-      c.id === newMessage.conversation_id 
-        ? { ...c, last_message: newMessage.message, last_message_at: newMessage.created_at }
-        : c
-    ));
-  });
+    channelRef.current = chatChannel;
 
-  // B. Fallback: Listen for standard PostgreSQL physical row insertions
-  chatChannel.on(
-    'postgres_changes',
-    { event: 'INSERT', schema: 'public', table: 'chat_messages' },
-    (payload) => {
-      const newMessage = payload.new as Message;
-      console.log("💾 Database synchronization row found:", newMessage);
-
-      setMessages(prev => {
-        const currentRoomMessages = prev[newMessage.conversation_id] || [];
-        if (currentRoomMessages.some(m => m.id === newMessage.id)) return prev;
-        return {
-          ...prev,
-          [newMessage.conversation_id]: [...currentRoomMessages, newMessage]
-        };
-      });
-    }
-  );
-
-  chatChannel.subscribe((status) => {
-    if (status === 'SUBSCRIBED') {
-      console.log('📡 Realtime active link confirmed.');
-    }
-  });
-
-  return () => {
-    supabase.removeChannel(chatChannel);
-  };
-}, [userId]);
-
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+        isSubscribedRef.current = false;
+      }
+    };
+  }, [userId, conversations]);
 
   const markMessagesAsRead = useCallback(async (conversationId: string, currentUserId: string) => {
     if (!conversationId || !currentUserId) return;
   
-    // Validate if the ID matches a standard 36-character UUID format layout
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const isUserUuid = uuidRegex.test(currentUserId);
-  
     try {
-      // Construct base update query
-      let query = supabase
+      const { error } = await supabase
         .from('chat_messages')
         .update({ is_read: true, read_at: new Date().toISOString() })
         .eq('conversation_id', conversationId)
-        .eq('is_read', false);
+        .eq('is_read', false)
+        .neq('sender_id', currentUserId);
   
-      // CRITICAL FIX: Only apply the exclusion check filter if the ID is a valid database UUID
-      if (isUserUuid) {
-        query = query.neq('sender_id', currentUserId);
-      }
-  
-      const { error } = await query;
       if (error) throw error;
   
-      // Synchronize local front-end unread pill states instantly
       setConversations(prev => prev.map(c => 
         c.id === conversationId ? { ...c, unread_count: 0 } : c
       ));
     } catch (error) {
-      console.error('Error marking messages as read safely:', error);
+      console.error('Error marking messages as read:', error);
     }
   }, []);
-  
 
   const fetchMessages = useCallback(async (conversationId: string) => {
     const currentUserId = userIdRef.current;
     if (!conversationId || !currentUserId) return;
 
     try {
+      // Verify user is a participant
+      const { data: conv, error: convError } = await supabase
+        .from('chat_conversations')
+        .select('participant_ids')
+        .eq('id', conversationId)
+        .single();
+
+      if (convError || !conv) {
+        console.error('Conversation not found');
+        return;
+      }
+
+      if (!conv.participant_ids.includes(currentUserId)) {
+        console.error('User is not a participant');
+        return;
+      }
+
       const { data, error } = await supabase
         .from('chat_messages')
         .select('*')
@@ -210,258 +221,151 @@ useEffect(() => {
     }
   }, [markMessagesAsRead]);
 
-  // Real-Time Listener Hook Handler
-  // Inside hooks/useChat.ts
+  const sendMessage = useCallback(async (conversationId: string, message: string, type: string = 'text', file?: File) => {
+    const currentUserId = userIdRef.current;
+    if (!currentUserId || (!message.trim() && !file)) return;
 
-useEffect(() => {
-  const currentUserId = userIdRef.current;
-  // Prevent executing on invalid or guest user credentials 
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!currentUserId || !uuidRegex.test(currentUserId)) return;
+    try {
+      // Verify user is a participant
+      const { data: conv, error: convError } = await supabase
+        .from('chat_conversations')
+        .select('participant_ids')
+        .eq('id', conversationId)
+        .single();
 
-  const channelName = `realtime_chat_rooms_${currentUserId}`;
-  
-  // Track channel within your custom chatService garbage collector
-  chatService.trackChannel(channelName);
-
-  // 1. Initialize the channel channel listener reference first
-  const chatChannel = supabase.channel(channelName);
-
-  // 2. Attach the event listeners FIRST (Crucial Step)
-  chatChannel.on(
-    'postgres_changes',
-    { event: 'INSERT', schema: 'public', table: 'chat_messages' },
-    (payload) => {
-      const newMessage = payload.new as Message;
-      
-      // Safety validation mapping to prevent double appends
-      setMessages(prev => {
-        const currentRoomMessages = prev[newMessage.conversation_id] || [];
-        if (currentRoomMessages.some(m => m.id === newMessage.id)) return prev;
-        return {
-          ...prev,
-          [newMessage.conversation_id]: [...currentRoomMessages, newMessage]
-        };
-      });
-
-      // Advance layout metrics for real-time room updates
-      setConversations(prev => prev.map(c => 
-        c.id === newMessage.conversation_id 
-          ? { ...c, last_message: newMessage.message, last_message_at: newMessage.created_at }
-          : c
-      ));
-    }
-  );
-
-  // 3. Fire the final subscribe connection execution AFTER all events are declared
-  chatChannel.subscribe((status) => {
-    if (status === 'SUBSCRIBED') {
-      console.log('📡 Successfully connected to real-time chat updates.');
-    }
-  });
-
-  // Clean layout instances up on unmount
-  return () => {
-    supabase.removeChannel(chatChannel);
-  };
-}, [userId]);
-
-
-  // Inside hooks/useChat.ts -> Update sendMessage method
-
-const sendMessage = useCallback(async (conversationId: string, message: string, type: string = 'text', file?: File) => {
-  const currentUserId = userIdRef.current;
-  if (!currentUserId || (!message.trim() && !file)) return;
-
-  // ... (Your file storage uploading blocks remain exactly unchanged here) ...
-
-  try {
-    let senderName = 'User';
-    if (!currentUserId.startsWith('guest_')) {
-      const { data: userData } = await supabase.from('users').select('full_name').eq('id', currentUserId).single();
-      senderName = userData?.full_name || 'User';
-    } else {
-      senderName = chatService.getGuestName();
-    }
-
-    const messagePayload = {
-      conversation_id: conversationId,
-      sender_id: currentUserId,
-      sender_name: senderName,
-      message: message,
-      message_type: type,
-      is_read: false,
-      created_at: new Date().toISOString()
-    };
-
-    // 1. OPTIMISTIC UPDATE: Put the message in your own UI instantly without waiting for a database response
-    const mockId = `temp_${Date.now()}`;
-    const optimisticMsg = { id: mockId, ...messagePayload };
-    
-    setMessages(prev => ({
-      ...prev,
-      [conversationId]: [...(prev[conversationId] || []), optimisticMsg]
-    }));
-
-    // 2. Fetch conversation metadata row to figure out who needs to receive the broadcast message
-    const { data: currentConv } = await supabase
-      .from('chat_conversations')
-      .select('participant_ids')
-      .eq('id', conversationId)
-      .single();
-
-    // 3. Save message row directly to the database
-    const { data: savedData, error } = await supabase
-      .from('chat_messages')
-      .insert(messagePayload)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Replace our temporary UI message with the authentic database record
-    setMessages(prev => ({
-      ...prev,
-      [conversationId]: (prev[conversationId] || []).map(m => m.id === mockId ? savedData : m)
-    }));
-
-    // 4. INSTANT BROADCAST TRANSMISSION: Loop over conversation participants and ping their WebSocket channels
-    if (currentConv && currentConv.participant_ids) {
-      const otherRecipients = currentConv.participant_ids.filter((pId: string) => pId !== currentUserId);
-
-      for (const targetRecipientId of otherRecipients) {
-        const broadcastChannelName = `chat_global_stream_${targetRecipientId}`;
-        
-        // Dispatch instant WebSocket message token transmission packets
-        await supabase.channel(broadcastChannelName).send({
-          type: 'broadcast',
-          event: 'shuttle_msg',
-          payload: savedData // Send verified db row
-        });
+      if (convError || !conv) {
+        console.error('Conversation not found');
+        return;
       }
+
+      if (!conv.participant_ids.includes(currentUserId)) {
+        console.error('User is not a participant');
+        return;
+      }
+
+      let senderName = 'User';
+      if (isValidUUID(currentUserId)) {
+        const { data: userData } = await supabase.from('users').select('full_name').eq('id', currentUserId).single();
+        senderName = userData?.full_name || 'User';
+      }
+
+      const messagePayload = {
+        conversation_id: conversationId,
+        sender_id: currentUserId,
+        sender_name: senderName,
+        message: message || (file ? '📎 File shared' : ''),
+        message_type: type,
+        is_read: false,
+        created_at: new Date().toISOString()
+      };
+
+      // Optimistic update
+      const mockId = `temp_${Date.now()}`;
+      const optimisticMsg = { id: mockId, ...messagePayload };
+      
+      setMessages(prev => ({
+        ...prev,
+        [conversationId]: [...(prev[conversationId] || []), optimisticMsg]
+      }));
+
+      const { data: savedData, error } = await supabase
+        .from('chat_messages')
+        .insert(messagePayload)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Replace temp message with real one
+      setMessages(prev => ({
+        ...prev,
+        [conversationId]: (prev[conversationId] || []).map(m => m.id === mockId ? savedData : m)
+      }));
+
+      // Update conversation last message
+      await supabase
+        .from('chat_conversations')
+        .update({
+          last_message: message || '📎 File shared',
+          last_message_at: new Date().toISOString()
+        })
+        .eq('id', conversationId);
+
+    } catch (error) {
+      console.error('Error sending message:', error);
     }
-
-    // 5. Update main conversation metadata last message row index pointer
-    await supabase
-      .from('chat_conversations')
-      .update({
-        last_message: message,
-        last_message_at: new Date().toISOString()
-      })
-      .eq('id', conversationId);
-
-  } catch (error) {
-    console.error('Error sending message:', error);
-  }
-}, []);
-
+  }, []);
 
   const createConversation = useCallback(async (participantIds: string[], type: string = 'direct') => {
     const currentUserId = userIdRef.current;
-    if (!currentUserId) {
-      console.error("❌ Cannot create conversation: Current User ID is missing.");
+    if (!currentUserId || !isValidUUID(currentUserId)) {
+      console.error("❌ Cannot create conversation: Invalid User ID.");
       return null;
     }
-  
-    // 1. TYPE SAFEGUARD: Separate valid Postgres UUIDs from client transient guest text strings
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    
-    // Combine IDs and keep unique values
+
     const allIds = Array.from(new Set([...participantIds, currentUserId]));
-    
-    // Extract strictly valid UUIDs for Postgres queries
-    const validDatabaseUUIDs = allIds.filter(id => uuidRegex.test(id));
-    
-    // Track guest IDs separately so we don't pass them to UUID columns
-    const guestStringIds = allIds.filter(id => !uuidRegex.test(id));
-  
+    const validUUIDs = allIds.filter(id => isValidUUID(id));
+
     try {
-      console.log("🛠️ Type parsing breakdown:", { databaseUuids: validDatabaseUUIDs, guestIds: guestStringIds });
-  
-      // 2. DUPLICATE CHECK: Skip DB lookups if there aren't enough valid database UUIDs
-      if (type === 'direct' && validDatabaseUUIDs.length > 0) {
+      // For direct messages, check if conversation already exists
+      if (type === 'direct' && validUUIDs.length === 2) {
         const { data: existingConvs, error: lookupError } = await supabase
           .from('chat_conversations')
           .select('*')
-          .contains('participant_ids', validDatabaseUUIDs);
-  
+          .contains('participant_ids', validUUIDs)
+          .eq('type', 'direct');
+
         if (!lookupError && existingConvs) {
-          // Match existing row exactly by length to avoid group-chat collision bugs
           const exactMatch = existingConvs.find(
-            c => c.participant_ids?.length === validDatabaseUUIDs.length
+            c => c.participant_ids?.length === validUUIDs.length
           );
           if (exactMatch) {
-            console.log("🎯 Match found! Reusing conversation room ID:", exactMatch.id);
             setConversations(prev => prev.some(p => p.id === exactMatch.id) ? prev : [exactMatch, ...prev]);
             return exactMatch;
           }
         }
       }
-  
-      // 3. NAME RESOLUTION: Fetch names only for valid database users to prevent network fetch errors
+
+      // Fetch participant names
       let participantNames: string[] = [];
-      
-      if (validDatabaseUUIDs.length > 0) {
-        const { data: userProfiles, error: profilesError } = await supabase
+      if (validUUIDs.length > 0) {
+        const { data: userProfiles } = await supabase
           .from('users')
           .select('id, full_name')
-          .in('id', validDatabaseUUIDs);
-  
-        if (!profilesError && userProfiles) {
-          participantNames = validDatabaseUUIDs.map(id => {
-            const profile = userProfiles.find(u => u.id.toLowerCase() === id.toLowerCase());
+          .in('id', validUUIDs);
+
+        if (userProfiles) {
+          participantNames = validUUIDs.map(id => {
+            const profile = userProfiles.find(u => u.id === id);
             return profile?.full_name || 'User';
           });
         }
       }
-  
-      // Append names for guests using client-side fallback storage
-      guestStringIds.forEach(() => {
-        participantNames.push('Guest User');
-      });
-  
-      // 4. FALLBACK STRATEGY: If a guest is chatting, do not attempt to map them into the strict UUID[] columns
-      // Construct the database payload safely
-      const databasePayload: any = {
-        type: type,
-        last_message: 'Conversation started',
-        last_message_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        participant_names: participantNames,
-        metadata: { guest_participants: guestStringIds } // Safely track guest IDs inside a JSONB column instead of a UUID array
-      };
-  
-      // Only map to strict UUID properties if values exist and are structurally valid
-      if (validDatabaseUUIDs.length > 0) {
-        databasePayload.participant_ids = validDatabaseUUIDs;
-        if (uuidRegex.test(currentUserId)) {
-          databasePayload.created_by = currentUserId;
-        }
-      }
-  
-      console.log("📤 Dispatching clean row payload to Supabase:", databasePayload);
-  
+
       const { data, error } = await supabase
         .from('chat_conversations')
-        .insert(databasePayload)
+        .insert({
+          participant_ids: validUUIDs,
+          participant_names: participantNames,
+          type: type,
+          last_message: 'Conversation started',
+          last_message_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
         .select()
         .single();
-  
-      if (error) {
-        console.error('❌ Supabase DB Reject Reason:', error.message, error.details);
-        throw error;
-      }
-  
-      console.log('✅ Conversation created successfully:', data);
+
+      if (error) throw error;
+
       setConversations(prev => [data, ...prev]);
       return data;
-  
+
     } catch (error: any) {
-      console.error('❌ Catastrophic error inside createConversation:', error);
+      console.error('❌ Error creating conversation:', error);
       return null;
     }
   }, []);
-  
 
   return {
     conversations,

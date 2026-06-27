@@ -9,7 +9,7 @@ export default function WelcomePage() {
       <div className="max-w-5xl text-center">
 
         <div className="inline-block px-4 py-2 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-sm mb-8">
-          AMHROA MHRCIS v3.0
+          AMHROA MHRCIS v1.0
         </div>
 
         <h1 className="text-6xl font-black leading-tight">

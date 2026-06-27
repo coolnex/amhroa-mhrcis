@@ -1,4 +1,4 @@
-// app/coordinator/data-entry/page.tsx
+// app/coordinators/data-entry/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -179,7 +179,7 @@ export default function CoordinatorDataEntry() {
 
       setSuccess(true);
       setTimeout(() => {
-        router.push("/coordinator");
+        router.push("/coordinators");
       }, 3000);
     } catch (err: any) {
       console.error("Error submitting data:", err);
@@ -559,7 +559,7 @@ export default function CoordinatorDataEntry() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
       <div className="px-4 md:px-8 py-6">
         <div className="flex justify-between items-center mb-6">
-          <Link href="/coordinator" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
+          <Link href="/coordinators" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
           </Link>

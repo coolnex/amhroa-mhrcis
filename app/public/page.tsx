@@ -70,9 +70,9 @@ const resources = [
 
 const faqs = [
   { q: "What is AMHROA?", a: "The African Mental Health Reform Organization Africa (AMHROA) is a continental body dedicated to advancing mental health reform across African nations." },
-  { q: "How can my organization get involved?", a: "Organizations can register through our CSO portal to access funding opportunities, collaborate on advocacy campaigns, and participate in continental events." },
+  { q: "How can my organization get involved?", a: "Organizations can register by clicking the 'Join Us' button above to begin. Benefits includes access to funding opportunities, collaborations and partnerships on projects, advocacy campaigns, and participate in continental events." },
   { q: "What countries are covered?", a: "AMHROA covers all 54 African Union member states, with active reform tracking and technical assistance programs." },
-  { q: "How can I access reports?", a: "All public reports are available for free download in our knowledge repository. Create a free account for enhanced access." },
+  { q: "How can I access reports?", a: "All public reports are available for free download for members in our knowledge repository. Create an account for enhanced access." },
 ];
 
 export default function PublicPortal() {
@@ -138,7 +138,7 @@ export default function PublicPortal() {
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-600 to-blue-600 bg-clip-text text-transparent">
                   AMHROA
                 </h1>
-                <p className="text-xs text-slate-500">African Mental Health Reform</p>
+                <p className="text-xs text-slate-500">Association of Mental Health Reform Organizations in Africa</p>
               </div>
             </div>
 
@@ -207,14 +207,14 @@ export default function PublicPortal() {
                   height={40}
                   className="object-contain"
                 />
-                <span className="text-cyan-700 text-sm font-medium">Advancing Mental Health Reform Across Africa</span>
+                <span className="text-cyan-700 text-sm font-medium">Advancing Mental Health Reform & Care Across Africa</span>
                 </div>
               <h1 className="text-5xl md:text-7xl font-bold text-slate-900 mb-6">
-                Transforming Mental Health
+                Transforming Mental Health Systems
                 <span className="block text-cyan-600">Across Africa</span>
               </h1>
               <p className="text-xl text-slate-600 max-w-3xl mx-auto mb-10">
-                AMHROA is dedicated to advancing mental health reform, policy implementation, 
+                AMHROA is dedicated to advancing mental health reform, care, policy implementation, 
                 and continental collaboration for better mental health outcomes.
               </p>
               <div className="flex flex-wrap gap-4 justify-center">
@@ -275,7 +275,7 @@ export default function PublicPortal() {
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">Our Mission</h3>
                 <p className="text-slate-600 leading-relaxed">
-                  To accelerate mental health reform across Africa through policy advocacy, 
+                  To accelerate mental health reform across Africa through service delivery, policy advocacy, 
                   continental collaboration, and evidence-based implementation strategies.
                 </p>
               </div>
@@ -286,7 +286,7 @@ export default function PublicPortal() {
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">Our Vision</h3>
                 <p className="text-slate-600 leading-relaxed">
-                  A mentally healthy Africa where quality mental health services are accessible, 
+                  A mentally healthy Africa where reforms (legislation, policies and framework) priority and quality mental health services are accessible, 
                   affordable, and stigma-free for all citizens.
                 </p>
               </div>
@@ -495,7 +495,7 @@ export default function PublicPortal() {
                     </div>
                     <div>
                       <h3 className="font-bold text-slate-900">Our Headquarters</h3>
-                      <p className="text-slate-600">Abuja, Nigeria</p>
+                      <p className="text-slate-600">Suite 15 Mustard Seed Plaza 5th Avenue Gwarinpa Estate Abuja, Nigeria</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
@@ -504,7 +504,7 @@ export default function PublicPortal() {
                     </div>
                     <div>
                       <h3 className="font-bold text-slate-900">Phone</h3>
-                      <p className="text-slate-600">+234 803 464 5001</p>
+                      <p className="text-slate-600">+234 803 464 5001, 815 331 3385</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
@@ -584,8 +584,30 @@ export default function PublicPortal() {
                   <li><Link href="/countries" className="hover:text-cyan-400">Country Profiles</Link></li>
                   <li><Link href="/repository" className="hover:text-cyan-400">Knowledge Repository</Link></li>
                   <li><Link href="/careers" className="hover:text-cyan-400">Careers</Link></li>
+                  {/* WhatsApp Group Links */}
+                  <li>
+                    <a 
+                      href="https://chat.whatsapp.com/IZRq6U8M9Z5EJRRa1S4hgT" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="hover:text-cyan-400"
+                    >
+                      Join Central Working Group
+                    </a>
+                  </li>
+                  <li>
+                    <a 
+                      href="https://chat.whatsapp.com/BriQq1m86dJE6Q8TVyN0pP" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="hover:text-cyan-400"
+                    >
+                      Join Country Chapter
+                    </a>
+                  </li>
                 </ul>
               </div>
+
               <div>
                 <h4 className="font-semibold mb-4">Resources</h4>
                 <ul className="space-y-2 text-sm text-slate-400">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   ComposableMap,
   Geographies,
@@ -11,6 +12,7 @@ import { scaleLinear } from "d3-scale";
 import {
   TrendingUp,
   TrendingDown,
+  ArrowLeft,
   MapPin,
   Info,
   X,
@@ -196,6 +198,15 @@ export default function HeatmapPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
       {/* Header */}
+      <div className="px-4 md:px-8 pt-4">
+        <Link 
+          href="/countries" 
+          className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Countries
+        </Link>
+      </div>
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-8 md:py-10">
           <div className="flex justify-between items-start flex-wrap gap-4">

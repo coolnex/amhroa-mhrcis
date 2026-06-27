@@ -1,6 +1,8 @@
+// components/Chat/ChatWidget.tsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import {
   MessageSquare,
@@ -22,12 +24,14 @@ interface ChatWidgetProps {
 }
 
 export function ChatWidget({ userId, userRole, recipientId, recipientName }: ChatWidgetProps) {
+  const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [message, setMessage] = useState("");
   const [showUserList, setShowUserList] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,16 +49,25 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
     fetchConversations
   } = useChat(userId);
 
-  // Load conversations on mount
+  // Debug logging
   useEffect(() => {
+    console.log("💬 ChatWidget mounted with userId:", userId);
     if (userId) {
+      setIsInitialized(true);
+    }
+  }, [userId]);
+
+  // Load conversations on mount - only if authenticated
+  useEffect(() => {
+    if (userId && userId.length > 10 && !userId.startsWith('guest_')) {
+      console.log("💬 Fetching conversations for user:", userId);
       fetchConversations();
     }
   }, [userId, fetchConversations]);
 
-  // Safe User Directory Fetching (No duplicate hook blocks)
+  // Safe User Directory Fetching
   useEffect(() => {
-    if (showUserList) {
+    if (showUserList && userId) {
       const fetchUsers = async () => {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
         let query = supabase.from('users').select('id, full_name, email, role');
@@ -69,11 +82,20 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
           console.error("❌ Supabase fetch users error:", error.message);
           return;
         }
-        if (data) setUsers(data);
+        if (data) {
+          console.log("👥 Users loaded:", data.length);
+          setUsers(data);
+        }
       };
       fetchUsers();
     }
   }, [showUserList, userId]);
+
+  // Don't render if no valid userId
+  if (!userId || userId.length < 10 || userId.startsWith('guest_')) {
+    console.log("💬 ChatWidget hidden - invalid userId:", userId);
+    return null;
+  }
 
   // Autoscroll to bottom message
   useEffect(() => {
@@ -126,22 +148,17 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
 
   const handleSelectUser = async (targetUser: any) => {
     setSelectedUser(targetUser);
-    setShowUserList(false); // Instantly drop directory menus
+    setShowUserList(false);
     
     const newConv = await createConversation([targetUser.id]);
     if (newConv) {
-      // Extract the raw string ID parameter whether returned as an object row or a direct token key string
       const targetId = typeof newConv === 'object' && newConv !== null ? newConv.id : newConv;
-      
-      console.log("🔥 Successfully unlocking chat room view wrapper window for ID:", targetId);
-      
       setActiveConversation(targetId); 
-      await fetchMessages(targetId); // Pulls existing history or empty space state instantly
+      await fetchMessages(targetId);
     } else {
-      alert("Could not start conversation room layer channel.");
+      alert("Could not start conversation.");
     }
   };
-  
   
   const handleSelectConversation = async (conversationId: string) => {
     setActiveConversation(conversationId);
@@ -156,7 +173,12 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
     if (conversation.type === 'admin') return 'Admin Support';
     
     const names = conversation.participant_names || [];
-    return names.length ? names.join(', ') : 'Direct Message';
+    // Filter out the current user's name
+    const otherNames = names.filter((name: string) => {
+      const currentUser = users.find(u => u.id === userId);
+      return name !== currentUser?.full_name;
+    });
+    return otherNames.length ? otherNames.join(', ') : 'Direct Message';
   };
 
   const totalUnread = conversations.reduce((acc, c) => acc + (c.unread_count || 0), 0);
@@ -233,7 +255,7 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               <p className="text-xs text-slate-400 px-2 py-1 font-semibold">Start a Conversation</p>
               {users.length === 0 ? (
-                <div className="text-center text-xs text-slate-500 p-4">No other users found in directory.</div>
+                <div className="text-center text-xs text-slate-500 p-4">No other users found.</div>
               ) : (
                 users.map((u) => (
                   <button
@@ -253,7 +275,7 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
               )}
             </div>
           ) : (activeConversation && activeConversation !== "undefined") ? (
-            /* 2. ACTIVE LIVE MESSAGING VIEW WITH TEXTAREA (MOVED TO TOP PRIORITY) */
+            /* 2. ACTIVE LIVE MESSAGING VIEW */
             <>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {(messages[activeConversation] || []).length === 0 ? (

@@ -1,3 +1,4 @@
+// app/countries/page.tsx
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
@@ -25,59 +26,65 @@ import {
   BarChart3,
   Eye,
   ArrowUpRight,
+  Scale,
+  Activity,
+  Trophy,
 } from "lucide-react";
 
+// Interface matching mental_health_reforms table
 interface Country {
   id: number;
   country_name: string;
-  region: string;
-  reform_score: number;
   reform_tier: string;
-  sdg3_score: number;
-  priority_level: "🔥" | "⚡" | "🌱";
-  population: number;
-  capital: string;
   law_status: string;
   implementation_status: string;
-  last_updated: string;
+  budget_level: string;
+  priority_level: string;
+  strategy: string;
+  reform_score: number;
+  implementation_score: number;
+  sdg3_score: number;
+  sdg10_score: number;
+  sdg16_score: number;
+  agenda2063_score: number;
+  funding_gap_level: string;
+  investment_priority: string;
+  estimated_investment_need: number;
+  donor_readiness_score: number;
+  created_at: string;
 }
 
-// Mock data for demonstration
-const mockCountries: Country[] = [
-  { id: 1, country_name: "Nigeria", region: "West Africa", reform_score: 62, reform_tier: "Tier 2 - Law Exists / Limited Implementation", sdg3_score: 58, priority_level: "🔥", population: 218.6, capital: "Abuja", law_status: "Modern Law (2013)", implementation_status: "Minimal", last_updated: "2024-03-15" },
-  { id: 2, country_name: "Kenya", region: "East Africa", reform_score: 74, reform_tier: "Tier 2 - Law Exists / Limited Implementation", sdg3_score: 72, priority_level: "🔥", population: 53.8, capital: "Nairobi", law_status: "Modern Law (2019)", implementation_status: "Partial", last_updated: "2024-03-15" },
-  { id: 3, country_name: "South Africa", region: "Southern Africa", reform_score: 81, reform_tier: "Tier 4 - Moderate Systems", sdg3_score: 78, priority_level: "⚡", population: 60.1, capital: "Pretoria", law_status: "Modern Law (2002)", implementation_status: "Partial", last_updated: "2024-03-15" },
-  { id: 4, country_name: "Ghana", region: "West Africa", reform_score: 68, reform_tier: "Tier 2 - Law Exists / Limited Implementation", sdg3_score: 70, priority_level: "⚡", population: 32.8, capital: "Accra", law_status: "Modern Law (2012)", implementation_status: "Minimal", last_updated: "2024-03-15" },
-  { id: 5, country_name: "Rwanda", region: "East Africa", reform_score: 77, reform_tier: "Tier 2 - Law Exists / Limited Implementation", sdg3_score: 75, priority_level: "⚡", population: 13.3, capital: "Kigali", law_status: "Modern Law (2018)", implementation_status: "Partial", last_updated: "2024-03-15" },
-  { id: 6, country_name: "Egypt", region: "North Africa", reform_score: 70, reform_tier: "Tier 4 - Moderate Systems", sdg3_score: 68, priority_level: "⚡", population: 104.3, capital: "Cairo", law_status: "Modern Law (2009)", implementation_status: "Partial", last_updated: "2024-03-15" },
-  { id: 7, country_name: "Morocco", region: "North Africa", reform_score: 72, reform_tier: "Tier 4 - Moderate Systems", sdg3_score: 70, priority_level: "⚡", population: 37.1, capital: "Rabat", law_status: "Modern Law (2011)", implementation_status: "Partial", last_updated: "2024-03-15" },
-  { id: 8, country_name: "Ethiopia", region: "East Africa", reform_score: 65, reform_tier: "Tier 2 - Law Exists / Limited Implementation", sdg3_score: 62, priority_level: "🔥", population: 117.9, capital: "Addis Ababa", law_status: "Modern Law (2019)", implementation_status: "Minimal", last_updated: "2024-03-15" },
-  { id: 9, country_name: "Tanzania", region: "East Africa", reform_score: 48, reform_tier: "Tier 5 - Mixed Systems", sdg3_score: 50, priority_level: "⚡", population: 61.5, capital: "Dodoma", law_status: "Outdated Law", implementation_status: "Minimal", last_updated: "2024-03-15" },
-  { id: 10, country_name: "Uganda", region: "East Africa", reform_score: 68, reform_tier: "Tier 2 - Law Exists / Limited Implementation", sdg3_score: 65, priority_level: "🔥", population: 45.9, capital: "Kampala", law_status: "Modern Law (2014)", implementation_status: "Minimal", last_updated: "2024-03-15" },
-  { id: 11, country_name: "Senegal", region: "West Africa", reform_score: 48, reform_tier: "Tier 3 - Outdated Laws", sdg3_score: 52, priority_level: "⚡", population: 16.7, capital: "Dakar", law_status: "Outdated Law", implementation_status: "Minimal", last_updated: "2024-03-15" },
-  { id: 12, country_name: "Zambia", region: "Southern Africa", reform_score: 58, reform_tier: "Tier 2 - Law Exists / Limited Implementation", sdg3_score: 56, priority_level: "🔥", population: 18.4, capital: "Lusaka", law_status: "Modern Law (2019)", implementation_status: "Minimal", last_updated: "2024-03-15" },
-  { id: 13, country_name: "DR Congo", region: "Central Africa", reform_score: 16, reform_tier: "Tier 1 - System Failure", sdg3_score: 15, priority_level: "🔥", population: 89.6, capital: "Kinshasa", law_status: "No Law", implementation_status: "None", last_updated: "2024-03-15" },
-  { id: 14, country_name: "Somalia", region: "East Africa", reform_score: 12, reform_tier: "Tier 1 - System Failure", sdg3_score: 10, priority_level: "🔥", population: 15.9, capital: "Mogadishu", law_status: "No Law", implementation_status: "None", last_updated: "2024-03-15" },
-  { id: 15, country_name: "Mauritius", region: "Island States", reform_score: 85, reform_tier: "Tier 4 - Moderate Systems", sdg3_score: 88, priority_level: "🌱", population: 1.3, capital: "Port Louis", law_status: "Modern Law", implementation_status: "Partial", last_updated: "2024-03-15" },
+const regions = [
+  "all", 
+  "West Africa", 
+  "East Africa", 
+  "Southern Africa", 
+  "North Africa", 
+  "Central Africa", 
+  "Island States"
 ];
 
-const regions = ["all", "West Africa", "East Africa", "Southern Africa", "North Africa", "Central Africa", "Island States"];
-
 const getPriorityIcon = (priority: string) => {
-  switch (priority) {
+  switch (priority?.toLowerCase()) {
+    case "crisis":
     case "🔥": return <Flame className="w-4 h-4 text-red-400" />;
+    case "high":
     case "⚡": return <Zap className="w-4 h-4 text-yellow-400" />;
+    case "model":
     case "🌱": return <Leaf className="w-4 h-4 text-emerald-400" />;
-    default: return null;
+    default: return <Zap className="w-4 h-4 text-yellow-400" />;
   }
 };
 
 const getPriorityText = (priority: string) => {
-  switch (priority) {
+  switch (priority?.toLowerCase()) {
+    case "crisis":
     case "🔥": return "Crisis Priority";
+    case "high":
     case "⚡": return "High Impact Priority";
+    case "model":
     case "🌱": return "Model System";
-    default: return "";
+    default: return "High Impact Priority";
   }
 };
 
@@ -104,7 +111,7 @@ export default function CountriesPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("all");
-  const [sortBy, setSortBy] = useState<"name" | "score" | "population">("score");
+  const [sortBy, setSortBy] = useState<"name" | "score" | "implementation">("score");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   useEffect(() => {
@@ -114,20 +121,20 @@ export default function CountriesPage() {
   const fetchCountries = async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/heatmap");
+      const response = await fetch("/api/countries");
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.countries) {
           setCountries(data.countries);
         } else {
-          setCountries(mockCountries);
+          setCountries([]);
         }
       } else {
-        setCountries(mockCountries);
+        setCountries([]);
       }
     } catch (error) {
       console.error("Error fetching countries:", error);
-      setCountries(mockCountries);
+      setCountries([]);
     } finally {
       setLoading(false);
     }
@@ -135,15 +142,15 @@ export default function CountriesPage() {
 
   const filteredAndSortedCountries = useMemo(() => {
     let filtered = countries.filter(country => {
-      const matchesSearch = country.country_name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesRegion = selectedRegion === "all" || country.region === selectedRegion;
+      const matchesSearch = country.country_name?.toLowerCase().includes(searchTerm.toLowerCase()) || false;
+      const matchesRegion = selectedRegion === "all" || true;
       return matchesSearch && matchesRegion;
     });
 
     filtered.sort((a, b) => {
-      if (sortBy === "name") return a.country_name.localeCompare(b.country_name);
-      if (sortBy === "score") return b.reform_score - a.reform_score;
-      if (sortBy === "population") return b.population - a.population;
+      if (sortBy === "name") return (a.country_name || "").localeCompare(b.country_name || "");
+      if (sortBy === "score") return (b.reform_score || 0) - (a.reform_score || 0);
+      if (sortBy === "implementation") return (b.implementation_score || 0) - (a.implementation_score || 0);
       return 0;
     });
 
@@ -152,9 +159,10 @@ export default function CountriesPage() {
 
   const stats = {
     total: countries.length,
-    avgScore: Math.round(countries.reduce((acc, c) => acc + c.reform_score, 0) / countries.length),
-    crisisCountries: countries.filter(c => c.reform_score < 30).length,
-    highPerformers: countries.filter(c => c.reform_score >= 70).length,
+    avgScore: countries.length > 0 ? Math.round(countries.reduce((acc, c) => acc + (c.reform_score || 0), 0) / countries.length) : 0,
+    avgImplementation: countries.length > 0 ? Math.round(countries.reduce((acc, c) => acc + (c.implementation_score || 0), 0) / countries.length) : 0,
+    crisisCountries: countries.filter(c => (c.reform_score || 0) < 30).length,
+    highPerformers: countries.filter(c => (c.reform_score || 0) >= 70).length,
   };
 
   if (loading) {
@@ -183,7 +191,7 @@ export default function CountriesPage() {
                 </div>
                 <div className="flex items-center gap-1">
                   <Globe className="w-4 h-4 text-cyan-400" />
-                  <span className="text-slate-400 text-xs">54 African Nations</span>
+                  <span className="text-slate-400 text-xs">{countries.length} African Nations</span>
                 </div>
               </div>
               <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
@@ -194,17 +202,34 @@ export default function CountriesPage() {
               </p>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <Link
+                href="/compare"
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-xl text-white transition-colors"
+              >
+                <Scale className="w-4 h-4" />
+                <span className="text-sm hidden sm:inline">Compare</span>
+              </Link>
+              <Link
+                href="/heatmap"
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-xl text-white transition-colors"
+              >
+                <Activity className="w-4 h-4" />
+                <span className="text-sm hidden sm:inline">Heatmap</span>
+              </Link>
+              <Link
+                href="/rankings"
+                className="flex items-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-xl text-white transition-colors"
+              >
+                <Trophy className="w-4 h-4" />
+                <span className="text-sm hidden sm:inline">Rankings</span>
+              </Link>
               <button
                 onClick={fetchCountries}
                 className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
                 <span className="text-sm hidden sm:inline">Refresh</span>
-              </button>
-              <button className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors">
-                <Download className="w-4 h-4" />
-                <span className="text-sm hidden sm:inline">Export</span>
               </button>
             </div>
           </div>
@@ -248,25 +273,13 @@ export default function CountriesPage() {
           </div>
 
           <select
-            value={selectedRegion}
-            onChange={(e) => setSelectedRegion(e.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
-          >
-            {regions.map(region => (
-              <option key={region} value={region}>
-                {region === "all" ? "All Regions" : region}
-              </option>
-            ))}
-          </select>
-
-          <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as "name" | "score" | "population")}
+            onChange={(e) => setSortBy(e.target.value as "name" | "score" | "implementation")}
             className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
           >
-            <option value="score">Sort by Score</option>
+            <option value="score">Sort by Reform Score</option>
+            <option value="implementation">Sort by Implementation</option>
             <option value="name">Sort by Name</option>
-            <option value="population">Sort by Population</option>
           </select>
 
           <div className="flex bg-slate-800 rounded-xl p-1">
@@ -286,135 +299,141 @@ export default function CountriesPage() {
         </div>
 
         {/* Countries Grid/List View */}
-        {viewMode === "grid" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredAndSortedCountries.map((country) => (
-              <div
-                key={country.id}
-                className="bg-slate-800/50 rounded-2xl border border-slate-700 hover:border-cyan-500/50 transition-all group overflow-hidden"
-              >
-                <div className="p-6">
-                  {/* Header */}
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h2 className="text-xl font-bold text-white group-hover:text-cyan-400 transition-colors">
-                        {country.country_name}
-                      </h2>
-                      <p className="text-slate-400 text-sm flex items-center gap-1 mt-1">
-                        <MapPin className="w-3 h-3" />
-                        {country.region}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-700">
-                      {getPriorityIcon(country.priority_level)}
-                      <span className="text-xs text-slate-300">{getPriorityText(country.priority_level)}</span>
-                    </div>
-                  </div>
-
-                  {/* Score Display */}
-                  <div className="text-center py-4 border-y border-slate-700 my-4">
-                    <div className="inline-block">
-                      <div className={`w-24 h-24 rounded-full ${getScoreBgColor(country.reform_score)} flex items-center justify-center mx-auto`}>
-                        <span className={`text-3xl font-bold ${getScoreColor(country.reform_score)}`}>
-                          {country.reform_score}
-                        </span>
+        {filteredAndSortedCountries.length > 0 ? (
+          viewMode === "grid" ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredAndSortedCountries.map((country) => (
+                <div
+                  key={country.id}
+                  className="bg-slate-800/50 rounded-2xl border border-slate-700 hover:border-cyan-500/50 transition-all group overflow-hidden"
+                >
+                  <div className="p-6">
+                    {/* Header */}
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h2 className="text-xl font-bold text-white group-hover:text-cyan-400 transition-colors">
+                          {country.country_name}
+                        </h2>
+                        <p className="text-slate-400 text-sm flex items-center gap-1 mt-1">
+                          <MapPin className="w-3 h-3" />
+                          {country.reform_tier || "Not classified"}
+                        </p>
                       </div>
-                      <p className="text-slate-400 text-sm mt-2">Reform Score</p>
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-700">
+                        {getPriorityIcon(country.priority_level)}
+                        <span className="text-xs text-slate-300">{getPriorityText(country.priority_level)}</span>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Details */}
-                  <div className="space-y-2 mb-4">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-400">SDG 3.4 Alignment</span>
-                      <span className={`font-medium ${getScoreColor(country.sdg3_score)}`}>{country.sdg3_score}%</span>
+                    {/* Score Display */}
+                    <div className="text-center py-4 border-y border-slate-700 my-4">
+                      <div className="inline-block">
+                        <div className={`w-24 h-24 rounded-full ${getScoreBgColor(country.reform_score || 0)} flex items-center justify-center mx-auto`}>
+                          <span className={`text-3xl font-bold ${getScoreColor(country.reform_score || 0)}`}>
+                            {country.reform_score || 0}
+                          </span>
+                        </div>
+                        <p className="text-slate-400 text-sm mt-2">Reform Score</p>
+                      </div>
                     </div>
-                    <div className="w-full bg-slate-700 rounded-full h-1.5">
-                      <div className={`h-1.5 rounded-full ${country.sdg3_score >= 70 ? "bg-emerald-500" : country.sdg3_score >= 50 ? "bg-yellow-500" : "bg-red-500"}`} style={{ width: `${country.sdg3_score}%` }}></div>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-400">Population</span>
-                      <span className="text-white">{country.population}M</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-400">Law Status</span>
-                      <span className="text-white text-xs">{country.law_status}</span>
-                    </div>
-                  </div>
 
-                  {/* Actions */}
-                  <Link
-                    href={`/country/${encodeURIComponent(country.country_name)}`}
-                    className="w-full mt-4 py-2.5 bg-slate-700 hover:bg-cyan-600 rounded-xl text-white font-medium transition-colors flex items-center justify-center gap-2 group"
-                  >
-                    View Country Profile
-                    <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-                  </Link>
+                    {/* Details */}
+                    <div className="space-y-2 mb-4">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">Implementation</span>
+                        <span className={`font-medium ${getScoreColor(country.implementation_score || 0)}`}>{country.implementation_score || 0}%</span>
+                      </div>
+                      <div className="w-full bg-slate-700 rounded-full h-1.5">
+                        <div className={`h-1.5 rounded-full ${(country.implementation_score || 0) >= 70 ? "bg-emerald-500" : (country.implementation_score || 0) >= 50 ? "bg-yellow-500" : "bg-red-500"}`} style={{ width: `${country.implementation_score || 0}%` }}></div>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">Law Status</span>
+                        <span className="text-white text-xs">{country.law_status || "N/A"}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">Funding Gap</span>
+                        <span className="text-white text-xs">{country.funding_gap_level || "N/A"}</span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <Link
+                      href={`/countries/${encodeURIComponent(country.country_name)}`}
+                      className="w-full mt-4 py-2.5 bg-slate-700 hover:bg-cyan-600 rounded-xl text-white font-medium transition-colors flex items-center justify-center gap-2 group"
+                    >
+                      View Country Profile
+                      <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                    </Link>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[800px]">
-                <thead className="bg-slate-900/50">
-                  <tr>
-                    <th className="text-left p-4 text-slate-400 text-sm font-medium">Country</th>
-                    <th className="text-left p-4 text-slate-400 text-sm font-medium">Region</th>
-                    <th className="text-left p-4 text-slate-400 text-sm font-medium">Reform Score</th>
-                    <th className="text-left p-4 text-slate-400 text-sm font-medium">SDG 3.4</th>
-                    <th className="text-left p-4 text-slate-400 text-sm font-medium">Priority</th>
-                    <th className="text-left p-4 text-slate-400 text-sm font-medium">Population</th>
-                    <th className="text-left p-4 text-slate-400 text-sm font-medium"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAndSortedCountries.map((country) => (
-                    <tr key={country.id} className="border-t border-slate-700/50 hover:bg-slate-700/30 transition-colors">
-                      <td className="p-4">
-                        <div>
-                          <p className="text-white font-medium">{country.country_name}</p>
-                          <p className="text-slate-400 text-xs">{country.capital}</p>
-                        </div>
-                      </td>
-                      <td className="p-4 text-slate-300 text-sm">{country.region}</td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-16 bg-slate-700 rounded-full h-1.5">
-                            <div className={`h-1.5 rounded-full ${getScoreBgColor(country.reform_score).replace('bg-', 'bg-').replace('/20', '')}`} style={{ width: `${country.reform_score}%` }}></div>
-                          </div>
-                          <span className={`text-sm font-medium ${getScoreColor(country.reform_score)}`}>{country.reform_score}%</span>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <span className={`text-sm font-medium ${getScoreColor(country.sdg3_score)}`}>{country.sdg3_score}%</span>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-1">
-                          {getPriorityIcon(country.priority_level)}
-                          <span className="text-slate-300 text-sm">{getPriorityText(country.priority_level)}</span>
-                        </div>
-                      </td>
-                      <td className="p-4 text-slate-300 text-sm">{country.population}M</td>
-                      <td className="p-4">
-                        <Link
-                          href={`/country/${encodeURIComponent(country.country_name)}`}
-                          className="p-2 hover:bg-slate-600 rounded-lg transition-colors inline-flex items-center"
-                        >
-                          <Eye className="w-4 h-4 text-slate-400" />
-                        </Link>
-                       </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              ))}
             </div>
-          </div>
-        )}
-
-        {/* Empty State */}
-        {filteredAndSortedCountries.length === 0 && (
+          ) : (
+            <div className="bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[800px]">
+                  <thead className="bg-slate-900/50">
+                    <tr>
+                      <th className="text-left p-4 text-slate-400 text-sm font-medium">Country</th>
+                      <th className="text-left p-4 text-slate-400 text-sm font-medium">Reform Tier</th>
+                      <th className="text-left p-4 text-slate-400 text-sm font-medium">Reform Score</th>
+                      <th className="text-left p-4 text-slate-400 text-sm font-medium">Implementation</th>
+                      <th className="text-left p-4 text-slate-400 text-sm font-medium">Priority</th>
+                      <th className="text-left p-4 text-slate-400 text-sm font-medium">Funding Gap</th>
+                      <th className="text-left p-4 text-slate-400 text-sm font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAndSortedCountries.map((country) => (
+                      <tr key={country.id} className="border-t border-slate-700/50 hover:bg-slate-700/30 transition-colors">
+                        <td className="p-4">
+                          <div>
+                            <p className="text-white font-medium">{country.country_name}</p>
+                          </div>
+                        </td>
+                        <td className="p-4 text-slate-300 text-sm">{country.reform_tier || "N/A"}</td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 bg-slate-700 rounded-full h-1.5">
+                              <div className={`h-1.5 rounded-full ${getScoreBgColor(country.reform_score || 0).replace('bg-', 'bg-').replace('/20', '')}`} style={{ width: `${country.reform_score || 0}%` }}></div>
+                            </div>
+                            <span className={`text-sm font-medium ${getScoreColor(country.reform_score || 0)}`}>{country.reform_score || 0}%</span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <span className={`text-sm font-medium ${getScoreColor(country.implementation_score || 0)}`}>{country.implementation_score || 0}%</span>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-1">
+                            {getPriorityIcon(country.priority_level)}
+                            <span className="text-slate-300 text-sm">{getPriorityText(country.priority_level)}</span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            country.funding_gap_level?.toLowerCase() === "high" ? "bg-red-500/20 text-red-400" :
+                            country.funding_gap_level?.toLowerCase() === "medium" ? "bg-yellow-500/20 text-yellow-400" :
+                            "bg-emerald-500/20 text-emerald-400"
+                          }`}>
+                            {country.funding_gap_level || "N/A"}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <Link
+                            href={`/countries/${encodeURIComponent(country.country_name)}`}
+                            className="p-2 hover:bg-slate-600 rounded-lg transition-colors inline-flex items-center"
+                          >
+                            <Eye className="w-4 h-4 text-slate-400" />
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        ) : (
           <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-12 text-center">
             <Globe className="w-16 h-16 text-slate-600 mx-auto mb-4" />
             <p className="text-slate-400 text-lg">No countries found</p>
@@ -423,19 +442,21 @@ export default function CountriesPage() {
         )}
 
         {/* Footer Insights */}
-        <div className="mt-8 bg-gradient-to-r from-cyan-600/10 to-blue-600/10 rounded-2xl border border-cyan-500/20 p-6">
-          <div className="flex items-start gap-4">
-            <BarChart3 className="w-8 h-8 text-cyan-400 flex-shrink-0" />
-            <div>
-              <h3 className="text-white font-semibold text-lg mb-2">Continental Insights</h3>
-              <p className="text-slate-300">
-                {stats.crisisCountries} countries are in crisis tier requiring immediate intervention.
-                {stats.highPerformers} countries demonstrate strong reform progress.
-                The continental average reform score is {stats.avgScore}%.
-              </p>
+        {countries.length > 0 && (
+          <div className="mt-8 bg-gradient-to-r from-cyan-600/10 to-blue-600/10 rounded-2xl border border-cyan-500/20 p-6">
+            <div className="flex items-start gap-4">
+              <BarChart3 className="w-8 h-8 text-cyan-400 flex-shrink-0" />
+              <div>
+                <h3 className="text-white font-semibold text-lg mb-2">Continental Insights</h3>
+                <p className="text-slate-300">
+                  {stats.crisisCountries} countries are in crisis tier requiring immediate intervention.
+                  {stats.highPerformers} countries demonstrate strong reform progress.
+                  The continental average reform score is {stats.avgScore}% with {stats.avgImplementation}% implementation.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

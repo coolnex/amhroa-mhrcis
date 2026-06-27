@@ -391,7 +391,10 @@ export default function CoordinatorDashboard() {
 
   const fetchAllData = async (country: string) => {
     try {
-      const results = await Promise.allSettled([
+      console.log("🔍 Fetching all data for country:", country);
+      
+      // Fetch data with proper error handling for each
+      await Promise.allSettled([
         fetchCountryData(country),
         fetchReports(country),
         fetchOrganizations(country),
@@ -406,16 +409,8 @@ export default function CoordinatorDashboard() {
         fetchCrisisResponse(country),
         fetchSubmissions(country)
       ]);
-  
-      // Check for any rejected promises
-      const errors = results
-        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-        .map(result => result.reason);
       
-      if (errors.length > 0) {
-        console.warn("Some data fetches failed:", errors);
-        // Don't set error message for missing tables, just log them
-      }
+      console.log("✅ All data fetch attempts completed");
     } catch (error) {
       console.error("Error fetching data:", error);
       setError("Failed to load some data. Please refresh.");
@@ -447,27 +442,33 @@ export default function CoordinatorDashboard() {
 
   // Replace the existing fetch functions with these
 
-const fetchCareSystemMetrics = async (country: string) => {
-  try {
-    const { data, error } = await supabase
-      .from("care_system_metrics")
-      .select("*")
-      .eq("country", country)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(); // Use maybeSingle instead of single
+  const fetchCareSystemMetrics = async (country: string) => {
+    try {
+      console.log("🔍 Fetching care system metrics for:", country);
+      const { data, error, status } = await supabase
+        .from("care_system_metrics")
+        .select("*")
+        .eq("country", country)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
   
-    if (error) {
-      console.warn("Care system metrics not found:", error.message);
+      if (error) {
+        if (status === 406) {
+          console.log("ℹ️ Care system metrics table not found or empty");
+          setCareSystem(null);
+          return;
+        }
+        console.warn("Care system metrics error:", error);
+        setCareSystem(null);
+        return;
+      }
+      setCareSystem(data);
+    } catch (error) {
+      console.error("Error fetching care system metrics:", error);
       setCareSystem(null);
-      return;
     }
-    setCareSystem(data);
-  } catch (error) {
-    console.error("Error fetching care system metrics:", error);
-    setCareSystem(null);
-  }
-};
+  };
   
 const fetchFinancingMetrics = async (country: string) => {
   try {
@@ -1132,6 +1133,14 @@ const getSubmissionStatusBadge = (status: string) => {
                 <AlertCircle className="w-8 h-8 text-red-400 mb-2" />
                 <h4 className="text-white font-medium">Crisis Response</h4>
                 <p className="text-slate-400 text-sm">Update emergency response data</p>
+              </Link>
+              <Link
+                href="/coordinators/reform-data-entry"
+                className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 hover:border-cyan-500/30 transition-all"
+              >
+                <Brain className="w-4 h-4" />
+                <h4 className="text-white font-medium">Reform Data</h4>
+                <p className="text-slate-400 text-sm">Update country reform dashboard</p>
               </Link>
             </div>
 

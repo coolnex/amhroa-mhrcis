@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Trophy,
   Medal,
@@ -15,6 +16,7 @@ import {
   RefreshCw,
   Crown,
   Star,
+  ArrowLeft,
   Flame,
   Zap,
   Leaf,
@@ -164,6 +166,15 @@ export default function RankingsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
       {/* Header */}
+      <div className="px-4 md:px-8 pt-4">
+        <Link 
+          href="/countries" 
+          className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Countries
+        </Link>
+      </div>
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-8 md:py-10">
           <div className="flex justify-between items-start flex-wrap gap-4">
@@ -171,7 +182,7 @@ export default function RankingsPage() {
               <div className="flex items-center gap-3 mb-4">
                 <div className="px-3 py-1 bg-cyan-500/20 rounded-full border border-cyan-500/30">
                   <span className="text-cyan-300 text-xs font-mono tracking-wider">
-                    CONTINENTAL LEADERBOARD
+                    CONTINENTAL SCORECARD
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
@@ -180,7 +191,7 @@ export default function RankingsPage() {
                 </div>
               </div>
               <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-                Continental Rankings & Leaderboards
+                Continental Rankings & Score Card
               </h1>
               <p className="text-slate-300 text-base md:text-lg mt-3 max-w-2xl">
                 Pan-African reform benchmarking and implementation intelligence system.
