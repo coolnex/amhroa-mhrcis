@@ -23,19 +23,20 @@ import {
   Calendar,
   Plus,
   X,
-  Upload,
   Image,
-  Link2,
-  Twitter,
-  Linkedin,
-  Youtube,
-  Instagram,
   FileText,
   Check,
   LogOut,
+  Briefcase,
+  Tag,
+  Star,
+  TrendingUp,
+  DollarSign,
+  Clock,
 } from "lucide-react";
 import { CountrySelect } from "@/components/ui/country-select";
 
+// These will be stored in metadata JSONB
 const researchAreas = [
   "Mental Health Research",
   "Policy Analysis",
@@ -95,39 +96,40 @@ export default function AddUniversityPage() {
   const [selectedCountryCode, setSelectedCountryCode] = useState("");
   const [isAuthorized, setIsAuthorized] = useState(false);
   
+  // Form state matching EXACT database columns
   const [formData, setFormData] = useState({
+    // Core columns from database
     name: "",
-    description: "",
-    type: "",
+    abbreviation: "",
     country: "",
-    region: "",
-    website: "",
-    contact_email: "",
-    contact_phone: "",
-    established_year: new Date().getFullYear(),
-    research_areas: [] as string[],
-    active_researchers: 0,
-    publications: 0,
-    funding_received: 0,
-    partnerships: 0,
-    rating: 0,
-    status: "Active",
-    logo_url: "",
-    social_media: {
-      twitter: "",
-      linkedin: "",
-      youtube: "",
-      instagram: "",
-    },
-    address: "",
     city: "",
-    postal_code: "",
-    motto: "",
-    accreditation: "",
-    programs_offered: [] as string[],
-    facilities: [] as string[],
+    website: "",
+    email: "",
+    phone: "",
+    address: "",
+    description: "",
+    logo_url: "",
+    status: "Pending",
+    
+    // Metadata fields (stored in JSONB)
+    metadata: {
+      type: "",
+      region: "",
+      established_year: new Date().getFullYear(),
+      research_areas: [] as string[],
+      active_researchers: 0,
+      publications: 0,
+      funding_received: 0,
+      partnerships: 0,
+      rating: 0,
+      postal_code: "",
+      motto: "",
+      programs_offered: [] as string[],
+      facilities: [] as string[],
+    }
   });
 
+  // UI state for dynamic lists
   const [newResearchArea, setNewResearchArea] = useState("");
   const [newProgram, setNewProgram] = useState("");
   const [newFacility, setNewFacility] = useState("");
@@ -140,7 +142,6 @@ export default function AddUniversityPage() {
     try {
       console.log("🔐 Add University - Verifying security clearance...");
 
-      // 1. First check localStorage for user profile
       const userStr = localStorage.getItem("user");
       
       if (userStr) {
@@ -159,16 +160,13 @@ export default function AddUniversityPage() {
         }
       }
 
-      // 2. Fetch active authentication token session from Supabase
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError || !session?.user) {
-        console.log("No active session found, routing back to login page.");
         router.push("/login");
         return;
       }
 
-      // 3. Fetch structural profile record from public.users table
       const { data: userData, error: dbError } = await supabase
         .from("users")
         .select("id, full_name, email, role, status, country")
@@ -176,34 +174,28 @@ export default function AddUniversityPage() {
         .single();
 
       if (dbError || !userData) {
-        console.error("Profile matching session ID not found:", dbError?.message);
         router.push("/login");
         return;
       }
 
-      // 4. Authorization Guard Rule
       const allowedRoles = ["Researcher", "Admin", "University"];
       
       if (!allowedRoles.includes(userData.role)) {
-        console.warn(`🛑 Unauthorized access attempt. User role "${userData.role}" is not authorized.`);
         router.push("/dashboard");
         return;
       }
 
-      // 5. Approval Constraint Guard Rule
       if (userData.status !== "Approved") {
-        console.log("Account is not yet marked as Approved.");
         router.push("/login?message=Account pending approval");
         return;
       }
 
-      // 6. Cache user data in localStorage
       localStorage.setItem("user", JSON.stringify(userData));
       setUser(userData);
       setIsAuthorized(true);
       
     } catch (error) {
-      console.error("Critical error encountered during security verification:", error);
+      console.error("Critical error during security verification:", error);
       router.push("/login");
     } finally {
       setLoading(false);
@@ -213,8 +205,6 @@ export default function AddUniversityPage() {
   const logout = async () => {
     try {
       localStorage.removeItem("user");
-      localStorage.removeItem("session");
-      localStorage.removeItem("token");
       await supabase.auth.signOut();
       router.push("/login");
     } catch (error) {
@@ -225,7 +215,7 @@ export default function AddUniversityPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validation
+    // Validation - only required fields
     if (!formData.name.trim()) {
       setError("University name is required");
       return;
@@ -234,12 +224,7 @@ export default function AddUniversityPage() {
       setError("Country is required");
       return;
     }
-    if (!formData.type) {
-      setError("University type is required");
-      return;
-    }
 
-    // Check if user is authenticated
     if (!user) {
       setError("You must be logged in to add a university");
       router.push("/login");
@@ -252,35 +237,31 @@ export default function AddUniversityPage() {
     try {
       console.log("📝 Adding university for user:", user.id);
 
+      // Prepare data matching EXACT database schema
+      const insertData = {
+        name: formData.name,
+        abbreviation: formData.abbreviation || null,
+        country: formData.country,
+        city: formData.city || null,
+        website: formData.website || null,
+        email: formData.email || null,
+        phone: formData.phone || null,
+        address: formData.address || null,
+        description: formData.description || null,
+        logo_url: formData.logo_url || null,
+        status: formData.status,
+        // Store all extra fields in metadata JSONB
+        metadata: formData.metadata,
+        created_by: user.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      console.log("📤 Inserting data:", insertData);
+
       const { data, error: insertError } = await supabase
         .from("universities")
-        .insert({
-          name: formData.name,
-          description: formData.description || null,
-          type: formData.type,
-          country: formData.country,
-          region: formData.region || null,
-          website: formData.website || null,
-          contact_email: formData.contact_email || null,
-          contact_phone: formData.contact_phone || null,
-          established_year: formData.established_year || null,
-          research_areas: formData.research_areas,
-          active_researchers: formData.active_researchers || 0,
-          publications: formData.publications || 0,
-          funding_received: formData.funding_received || 0,
-          partnerships: formData.partnerships || 0,
-          rating: formData.rating || 0,
-          status: formData.status,
-          logo_url: formData.logo_url || null,
-          address: formData.address || null,
-          city: formData.city || null,
-          postal_code: formData.postal_code || null,
-          motto: formData.motto || null,
-          accreditation: formData.accreditation || null,
-          created_by: user.id,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
+        .insert(insertData)
         .select();
 
       if (insertError) {
@@ -303,11 +284,15 @@ export default function AddUniversityPage() {
     }
   };
 
+  // Helper functions for metadata arrays
   const addResearchArea = () => {
-    if (newResearchArea.trim() && !formData.research_areas.includes(newResearchArea.trim())) {
+    if (newResearchArea.trim() && !formData.metadata.research_areas.includes(newResearchArea.trim())) {
       setFormData({
         ...formData,
-        research_areas: [...formData.research_areas, newResearchArea.trim()],
+        metadata: {
+          ...formData.metadata,
+          research_areas: [...formData.metadata.research_areas, newResearchArea.trim()],
+        }
       });
       setNewResearchArea("");
     }
@@ -316,15 +301,21 @@ export default function AddUniversityPage() {
   const removeResearchArea = (area: string) => {
     setFormData({
       ...formData,
-      research_areas: formData.research_areas.filter(a => a !== area),
+      metadata: {
+        ...formData.metadata,
+        research_areas: formData.metadata.research_areas.filter(a => a !== area),
+      }
     });
   };
 
   const addProgram = () => {
-    if (newProgram.trim() && !formData.programs_offered.includes(newProgram.trim())) {
+    if (newProgram.trim() && !formData.metadata.programs_offered.includes(newProgram.trim())) {
       setFormData({
         ...formData,
-        programs_offered: [...formData.programs_offered, newProgram.trim()],
+        metadata: {
+          ...formData.metadata,
+          programs_offered: [...formData.metadata.programs_offered, newProgram.trim()],
+        }
       });
       setNewProgram("");
     }
@@ -333,15 +324,21 @@ export default function AddUniversityPage() {
   const removeProgram = (program: string) => {
     setFormData({
       ...formData,
-      programs_offered: formData.programs_offered.filter(p => p !== program),
+      metadata: {
+        ...formData.metadata,
+        programs_offered: formData.metadata.programs_offered.filter(p => p !== program),
+      }
     });
   };
 
   const addFacility = () => {
-    if (newFacility.trim() && !formData.facilities.includes(newFacility.trim())) {
+    if (newFacility.trim() && !formData.metadata.facilities.includes(newFacility.trim())) {
       setFormData({
         ...formData,
-        facilities: [...formData.facilities, newFacility.trim()],
+        metadata: {
+          ...formData.metadata,
+          facilities: [...formData.metadata.facilities, newFacility.trim()],
+        }
       });
       setNewFacility("");
     }
@@ -350,11 +347,24 @@ export default function AddUniversityPage() {
   const removeFacility = (facility: string) => {
     setFormData({
       ...formData,
-      facilities: formData.facilities.filter(f => f !== facility),
+      metadata: {
+        ...formData.metadata,
+        facilities: formData.metadata.facilities.filter(f => f !== facility),
+      }
     });
   };
 
-  // Show loading state
+  // Helper to update metadata fields
+  const updateMetadata = (field: string, value: any) => {
+    setFormData({
+      ...formData,
+      metadata: {
+        ...formData.metadata,
+        [field]: value,
+      }
+    });
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
@@ -366,7 +376,6 @@ export default function AddUniversityPage() {
     );
   }
 
-  // If not authorized, return null
   if (!isAuthorized || !user) {
     return null;
   }
@@ -416,7 +425,7 @@ export default function AddUniversityPage() {
                 Add University
               </h1>
               <p className="text-slate-300 text-sm md:text-base mt-2 max-w-2xl">
-                Register a university to the research network. Provide details about the institution, research areas, and facilities.
+                Register a university to the research network. Provide details about the institution.
               </p>
             </div>
           </div>
@@ -432,7 +441,7 @@ export default function AddUniversityPage() {
         )}
 
         <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
-          {/* Basic Information */}
+          {/* Basic Information - Database Columns */}
           <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
             <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
               <University className="w-5 h-5 text-cyan-400" />
@@ -452,118 +461,13 @@ export default function AddUniversityPage() {
                 />
               </div>
 
-              <div className="md:col-span-2">
-                <label className="text-slate-400 text-sm block mb-2">Description</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Brief description of the university..."
-                  rows={3}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
               <div>
-                <label className="text-slate-400 text-sm block mb-2">University Type *</label>
-                <select
-                  value={formData.type}
-                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
-                  required
-                >
-                  <option value="">Select Type</option>
-                  {universityTypes.map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-slate-400 text-sm block mb-2">Country *</label>
-                <CountrySelect
-                  value={selectedCountryCode}
-                  onChange={(code, name) => {
-                    setSelectedCountryCode(code);
-                    setFormData({ ...formData, country: name });
-                  }}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-slate-400 text-sm block mb-2">Region</label>
-                <select
-                  value={formData.region}
-                  onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
-                >
-                  <option value="">Select Region</option>
-                  {regions.map(region => (
-                    <option key={region} value={region}>{region}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-slate-400 text-sm block mb-2">Established Year</label>
-                <input
-                  type="number"
-                  value={formData.established_year}
-                  onChange={(e) => setFormData({ ...formData, established_year: parseInt(e.target.value) })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-slate-400 text-sm block mb-2">Motto</label>
+                <label className="text-slate-400 text-sm block mb-2">Abbreviation</label>
                 <input
                   type="text"
-                  value={formData.motto}
-                  onChange={(e) => setFormData({ ...formData, motto: e.target.value })}
-                  placeholder="University motto..."
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Contact Information */}
-          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
-            <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
-              <Globe className="w-5 h-5 text-cyan-400" />
-              Contact Information
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-slate-400 text-sm block mb-2">Website</label>
-                <input
-                  type="url"
-                  value={formData.website}
-                  onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                  placeholder="https://university.edu"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-slate-400 text-sm block mb-2">Contact Email</label>
-                <input
-                  type="email"
-                  value={formData.contact_email}
-                  onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
-                  placeholder="admin@university.edu"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-slate-400 text-sm block mb-2">Contact Phone</label>
-                <input
-                  type="tel"
-                  value={formData.contact_phone}
-                  onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
-                  placeholder="+234 800 000 0000"
+                  value={formData.abbreviation}
+                  onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })}
+                  placeholder="e.g., UoN"
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                 />
               </div>
@@ -575,30 +479,42 @@ export default function AddUniversityPage() {
                   onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                 >
-                  <option value="Active">Active</option>
-                  <option value="Inactive">Inactive</option>
                   <option value="Pending">Pending</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Rejected">Rejected</option>
                 </select>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-slate-400 text-sm block mb-2">Description</label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Brief description of the university..."
+                  rows={3}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
+                />
               </div>
             </div>
           </div>
 
-          {/* Address */}
+          {/* Contact & Location */}
           <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
             <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
-              <MapPin className="w-5 h-5 text-cyan-400" />
-              Location Details
+              <Globe className="w-5 h-5 text-cyan-400" />
+              Contact & Location
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2">
-                <label className="text-slate-400 text-sm block mb-2">Address</label>
-                <input
-                  type="text"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="Street address..."
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Country *</label>
+                <CountrySelect
+                  value={selectedCountryCode}
+                  onChange={(code, name) => {
+                    setSelectedCountryCode(code);
+                    setFormData({ ...formData, country: name });
+                  }}
+                  required
                 />
               </div>
 
@@ -613,24 +529,148 @@ export default function AddUniversityPage() {
                 />
               </div>
 
-              <div>
-                <label className="text-slate-400 text-sm block mb-2">Postal Code</label>
+              <div className="md:col-span-2">
+                <label className="text-slate-400 text-sm block mb-2">Address</label>
                 <input
                   type="text"
-                  value={formData.postal_code}
-                  onChange={(e) => setFormData({ ...formData, postal_code: e.target.value })}
-                  placeholder="Postal Code"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  placeholder="Street address..."
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Email</label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="admin@university.edu"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Phone</label>
+                <input
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  placeholder="+234 800 000 0000"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-slate-400 text-sm block mb-2">Website</label>
+                <input
+                  type="url"
+                  value={formData.website}
+                  onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                  placeholder="https://university.edu"
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                 />
               </div>
             </div>
           </div>
 
-          {/* Research Areas */}
+          {/* Logo */}
+          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
+            <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
+              <Image className="w-5 h-5 text-cyan-400" />
+              Logo
+            </h2>
+
+            <div>
+              <label className="text-slate-400 text-sm block mb-2">Logo URL</label>
+              <input
+                type="url"
+                value={formData.logo_url}
+                onChange={(e) => setFormData({ ...formData, logo_url: e.target.value })}
+                placeholder="https://university.edu/logo.png"
+                className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+          </div>
+
+          {/* Additional Information (stored in metadata) */}
+          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
+            <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
+              <Briefcase className="w-5 h-5 text-cyan-400" />
+              Additional Information
+              <span className="text-xs text-slate-500 font-normal ml-2">(stored in metadata)</span>
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">University Type</label>
+                <select
+                  value={formData.metadata.type}
+                  onChange={(e) => updateMetadata("type", e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="">Select Type</option>
+                  {universityTypes.map(type => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Region</label>
+                <select
+                  value={formData.metadata.region}
+                  onChange={(e) => updateMetadata("region", e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="">Select Region</option>
+                  {regions.map(region => (
+                    <option key={region} value={region}>{region}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Established Year</label>
+                <input
+                  type="number"
+                  value={formData.metadata.established_year}
+                  onChange={(e) => updateMetadata("established_year", parseInt(e.target.value) || new Date().getFullYear())}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Postal Code</label>
+                <input
+                  type="text"
+                  value={formData.metadata.postal_code}
+                  onChange={(e) => updateMetadata("postal_code", e.target.value)}
+                  placeholder="Postal Code"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-slate-400 text-sm block mb-2">Motto</label>
+                <input
+                  type="text"
+                  value={formData.metadata.motto}
+                  onChange={(e) => updateMetadata("motto", e.target.value)}
+                  placeholder="University motto..."
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Research Areas - stored in metadata */}
           <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
             <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-cyan-400" />
               Research Areas
+              <span className="text-xs text-slate-500 font-normal ml-2">(stored in metadata)</span>
             </h2>
 
             <div className="flex gap-2 mb-3">
@@ -652,7 +692,7 @@ export default function AddUniversityPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {formData.research_areas.map((area) => (
+              {formData.metadata.research_areas.map((area) => (
                 <span key={area} className="px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/20 rounded-full text-cyan-300 text-sm flex items-center gap-2">
                   {area}
                   <button
@@ -664,17 +704,18 @@ export default function AddUniversityPage() {
                   </button>
                 </span>
               ))}
-              {formData.research_areas.length === 0 && (
+              {formData.metadata.research_areas.length === 0 && (
                 <p className="text-slate-400 text-sm">No research areas added yet</p>
               )}
             </div>
           </div>
 
-          {/* Statistics */}
+          {/* Statistics - stored in metadata */}
           <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
             <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
               <Award className="w-5 h-5 text-cyan-400" />
               Statistics
+              <span className="text-xs text-slate-500 font-normal ml-2">(stored in metadata)</span>
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -682,8 +723,8 @@ export default function AddUniversityPage() {
                 <label className="text-slate-400 text-sm block mb-2">Active Researchers</label>
                 <input
                   type="number"
-                  value={formData.active_researchers}
-                  onChange={(e) => setFormData({ ...formData, active_researchers: parseInt(e.target.value) || 0 })}
+                  value={formData.metadata.active_researchers}
+                  onChange={(e) => updateMetadata("active_researchers", parseInt(e.target.value) || 0)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                 />
               </div>
@@ -692,8 +733,8 @@ export default function AddUniversityPage() {
                 <label className="text-slate-400 text-sm block mb-2">Publications</label>
                 <input
                   type="number"
-                  value={formData.publications}
-                  onChange={(e) => setFormData({ ...formData, publications: parseInt(e.target.value) || 0 })}
+                  value={formData.metadata.publications}
+                  onChange={(e) => updateMetadata("publications", parseInt(e.target.value) || 0)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                 />
               </div>
@@ -702,8 +743,8 @@ export default function AddUniversityPage() {
                 <label className="text-slate-400 text-sm block mb-2">Funding Received ($)</label>
                 <input
                   type="number"
-                  value={formData.funding_received}
-                  onChange={(e) => setFormData({ ...formData, funding_received: parseInt(e.target.value) || 0 })}
+                  value={formData.metadata.funding_received}
+                  onChange={(e) => updateMetadata("funding_received", parseInt(e.target.value) || 0)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                 />
               </div>
@@ -712,8 +753,8 @@ export default function AddUniversityPage() {
                 <label className="text-slate-400 text-sm block mb-2">Partnerships</label>
                 <input
                   type="number"
-                  value={formData.partnerships}
-                  onChange={(e) => setFormData({ ...formData, partnerships: parseInt(e.target.value) || 0 })}
+                  value={formData.metadata.partnerships}
+                  onChange={(e) => updateMetadata("partnerships", parseInt(e.target.value) || 0)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                 />
               </div>
@@ -725,137 +766,100 @@ export default function AddUniversityPage() {
                   step="0.1"
                   min="0"
                   max="5"
-                  value={formData.rating}
-                  onChange={(e) => setFormData({ ...formData, rating: parseFloat(e.target.value) || 0 })}
+                  value={formData.metadata.rating}
+                  onChange={(e) => updateMetadata("rating", parseFloat(e.target.value) || 0)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                 />
               </div>
             </div>
           </div>
 
-          {/* Logo */}
-          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
-            <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
-              <Image className="w-5 h-5 text-cyan-400" />
-              Logo URL
-            </h2>
-
-            <div>
-              <label className="text-slate-400 text-sm block mb-2">Logo URL</label>
-              <input
-                type="url"
-                value={formData.logo_url}
-                onChange={(e) => setFormData({ ...formData, logo_url: e.target.value })}
-                placeholder="https://university.edu/logo.png"
-                className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
-              />
-            </div>
-          </div>
-
-          {/* Accreditation */}
-          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
-            <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-cyan-400" />
-              Accreditation
-            </h2>
-
-            <div>
-              <label className="text-slate-400 text-sm block mb-2">Accreditation Details</label>
-              <textarea
-                value={formData.accreditation}
-                onChange={(e) => setFormData({ ...formData, accreditation: e.target.value })}
-                placeholder="Accreditation bodies, certifications, etc."
-                rows={3}
-                className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
-              />
-            </div>
-          </div>
-
-          {/* Programs Offered */}
+          {/* Programs & Facilities - stored in metadata */}
           <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
             <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
               <FileText className="w-5 h-5 text-cyan-400" />
-              Programs Offered
+              Programs & Facilities
+              <span className="text-xs text-slate-500 font-normal ml-2">(stored in metadata)</span>
             </h2>
 
-            <div className="flex gap-2 mb-3">
-              <input
-                type="text"
-                value={newProgram}
-                onChange={(e) => setNewProgram(e.target.value)}
-                placeholder="Add program..."
-                className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
-                onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addProgram())}
-              />
-              <button
-                type="button"
-                onClick={addProgram}
-                className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
+            {/* Programs */}
+            <div className="mb-6">
+              <label className="text-slate-400 text-sm block mb-2">Programs Offered</label>
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  value={newProgram}
+                  onChange={(e) => setNewProgram(e.target.value)}
+                  placeholder="Add program..."
+                  className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addProgram())}
+                />
+                <button
+                  type="button"
+                  onClick={addProgram}
+                  className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 rounded-xl text-white transition-colors"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {formData.metadata.programs_offered.map((program) => (
+                  <span key={program} className="px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-full text-purple-300 text-sm flex items-center gap-2">
+                    {program}
+                    <button
+                      type="button"
+                      onClick={() => removeProgram(program)}
+                      className="text-purple-400 hover:text-red-400 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                {formData.metadata.programs_offered.length === 0 && (
+                  <p className="text-slate-400 text-sm">No programs added yet</p>
+                )}
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {formData.programs_offered.map((program) => (
-                <span key={program} className="px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-full text-purple-300 text-sm flex items-center gap-2">
-                  {program}
-                  <button
-                    type="button"
-                    onClick={() => removeProgram(program)}
-                    className="text-purple-400 hover:text-red-400 transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
-              {formData.programs_offered.length === 0 && (
-                <p className="text-slate-400 text-sm">No programs added yet</p>
-              )}
-            </div>
-          </div>
+            {/* Facilities */}
+            <div>
+              <label className="text-slate-400 text-sm block mb-2">Facilities</label>
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  value={newFacility}
+                  onChange={(e) => setNewFacility(e.target.value)}
+                  placeholder="Add facility..."
+                  className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addFacility())}
+                />
+                <button
+                  type="button"
+                  onClick={addFacility}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-xl text-white transition-colors"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+              </div>
 
-          {/* Facilities */}
-          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
-            <h2 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-cyan-400" />
-              Facilities
-            </h2>
-
-            <div className="flex gap-2 mb-3">
-              <input
-                type="text"
-                value={newFacility}
-                onChange={(e) => setNewFacility(e.target.value)}
-                placeholder="Add facility..."
-                className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
-                onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addFacility())}
-              />
-              <button
-                type="button"
-                onClick={addFacility}
-                className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {formData.facilities.map((facility) => (
-                <span key={facility} className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-emerald-300 text-sm flex items-center gap-2">
-                  {facility}
-                  <button
-                    type="button"
-                    onClick={() => removeFacility(facility)}
-                    className="text-emerald-400 hover:text-red-400 transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
-              {formData.facilities.length === 0 && (
-                <p className="text-slate-400 text-sm">No facilities added yet</p>
-              )}
+              <div className="flex flex-wrap gap-2">
+                {formData.metadata.facilities.map((facility) => (
+                  <span key={facility} className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-emerald-300 text-sm flex items-center gap-2">
+                    {facility}
+                    <button
+                      type="button"
+                      onClick={() => removeFacility(facility)}
+                      className="text-emerald-400 hover:text-red-400 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                {formData.metadata.facilities.length === 0 && (
+                  <p className="text-slate-400 text-sm">No facilities added yet</p>
+                )}
+              </div>
             </div>
           </div>
 
