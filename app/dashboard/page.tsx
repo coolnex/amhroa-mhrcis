@@ -1,7 +1,12 @@
+// app/dashboard/page.tsx (Updated with Redirect Button)
+
 "use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { AdvocacyWidget } from "@/components/dashboard/AdvocacyWidget";
+import { AlertsWidget } from "@/components/AlertsWidget";
+import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
 import {
@@ -32,13 +37,15 @@ import {
   ArrowRight,
   Download,
   RefreshCw,
+  UserCog,
+  Home,
 } from "lucide-react";
 
 interface User {
   id: string;
   full_name: string;
   email: string;
-  role: "Admin" | "Policymaker" | "Researcher" | "CSO" | "Coordinator" | "Donor";
+  role: "Admin" | "Policymaker" | "Researcher" | "CSO" | "Coordinator" | "Donor" | "mental_health_professional" | "coordinator" | "admin_coordinator" | "policymaker_coordinator" | "donor_coordinator" | "researcher_coordinator" | "mental_health_coordinator";
   country?: string;
   organization?: string;
   avatar?: string;
@@ -73,6 +80,7 @@ const roleConfig: Record<string, any> = {
   Admin: {
     title: "Continental Control Center",
     description: "Platform governance and continental oversight dashboard",
+    rolePath: "/admin",
     metrics: [
       { title: "Total Users", value: 1247, change: 12, icon: Users, color: "cyan" },
       { title: "Active Countries", value: 54, change: 0, icon: Globe, color: "emerald" },
@@ -89,6 +97,7 @@ const roleConfig: Record<string, any> = {
   Policymaker: {
     title: "National Reform Intelligence Center",
     description: "Policy decision support and reform analytics",
+    rolePath: "/policymaker",
     metrics: [
       { title: "Country Reform Score", value: 74, change: 5, icon: TrendingUp, color: "cyan" },
       { title: "Legislative Progress", value: 68, change: 3, icon: Target, color: "blue" },
@@ -105,6 +114,7 @@ const roleConfig: Record<string, any> = {
   Researcher: {
     title: "Research Intelligence Hub",
     description: "Continental evidence and publication system",
+    rolePath: "/researcher",
     metrics: [
       { title: "Publications", value: 128, change: 15, icon: FileText, color: "cyan" },
       { title: "Citations", value: 342, change: 28, icon: Award, color: "purple" },
@@ -121,6 +131,7 @@ const roleConfig: Record<string, any> = {
   CSO: {
     title: "Civil Society Collaboration Hub",
     description: "Advocacy management and partnership tracking",
+    rolePath: "/organizations",
     metrics: [
       { title: "Active Campaigns", value: 8, change: 2, icon: Target, color: "cyan" },
       { title: "Coalition Members", value: 24, change: 5, icon: Users, color: "emerald" },
@@ -137,6 +148,7 @@ const roleConfig: Record<string, any> = {
   Coordinator: {
     title: "National Reporting Center",
     description: "Reform coordination and submission management",
+    rolePath: "/coordinators",
     metrics: [
       { title: "Reports Due", value: 3, change: -2, icon: Clock, color: "yellow" },
       { title: "Submitted", value: 12, change: 4, icon: CheckCircle, color: "emerald" },
@@ -153,6 +165,7 @@ const roleConfig: Record<string, any> = {
   Donor: {
     title: "Investment Intelligence Center",
     description: "Funding coordination and impact analytics",
+    rolePath: "/donor",
     metrics: [
       { title: "Funding Gap", value: "$245M", change: -12, icon: TrendingUp, color: "red" },
       { title: "Active Projects", value: 18, change: 4, icon: Target, color: "cyan" },
@@ -212,54 +225,131 @@ export default function DashboardPage() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const userStr = localStorage.getItem("user");
-        const token = localStorage.getItem("token");
-
-        console.log("Dashboard - User:", userStr);
-        console.log("Dashboard - Token:", token);
-
-        if (!userStr || !token) {
-          console.log("No user/token found, redirecting to login");
+        console.log("🔐 Dashboard - Verifying Supabase session...");
+  
+        // 1. Fetch active authentication token session directly from Supabase
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  
+        if (sessionError || !session?.user) {
+          console.log("No active Supabase session found, redirecting to login");
           router.push("/login");
           return;
         }
-
-        const userData = JSON.parse(userStr);
-        console.log("Dashboard - User role:", userData.role);
+  
+        // 2. Fetch custom user meta attributes (role, status) from your public.users table
+        const { data: userData, error: dbError } = await supabase
+          .from("users")
+          .select("id, full_name, email, role, status")
+          .eq("id", session.user.id)
+          .single();
+  
+        if (dbError || !userData) {
+          console.error("User profile entry missing in database directory:", dbError?.message);
+          router.push("/login");
+          return;
+        }
+  
+        console.log("Dashboard - Logged User profile role:", userData.role);
         
-        // Check if user is approved
+        // 3. Check if user is approved
         if (userData.status !== "Approved") {
           console.log("User not approved, redirecting to login");
           router.push("/login?message=Account pending approval");
           return;
         }
         
+        // 4. Hydrate dashboard state values matching your layout properties
         setUser(userData);
         setGreeting(getGreeting());
         setCurrentTime(getCurrentTime());
         setRecentActivities(getRecentActivities(userData.role));
         
-        // Update time every minute
+        // Update clock time intervals safely
         const interval = setInterval(() => {
           setCurrentTime(getCurrentTime());
         }, 60000);
         
         return () => clearInterval(interval);
       } catch (error) {
-        console.error("Dashboard error:", error);
+        console.error("Dashboard absolute error handling profile check:", error);
         router.push("/login");
       } finally {
         setLoading(false);
       }
     };
-
+  
     checkAuth();
   }, [router]);
+  
 
   const logout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     router.push("/login");
+  };
+
+  // Fixed redirectUser function with correct paths
+  const redirectUser = (role: string) => {
+    console.log("🔍 Redirecting user with role:", role);
+    
+    // Normalize role to lowercase for comparison
+    const normalizedRole = role?.toLowerCase() || "";
+    console.log("📌 Normalized role:", normalizedRole);
+    
+    // Role to path mapping
+    const roleMap: Record<string, string> = {
+      "admin": "/admin",
+      "policymaker": "/policymaker",
+      "researcher": "/researcher",
+      "cso": "/organizations",
+      "coordinator": "/coordinators",
+      "researcher_coordinator": "/coordinators",
+      "cso_coordinator": "/coordinators",
+      "mental_health_coordinator": "/coordinators",
+      "policymaker_coordinator": "/coordinators",
+      "donor_coordinator": "/coordinators",
+      "admin_coordinator": "/coordinators",
+      "donor": "/donor",
+      "mental_health_professional": "/mental-health-professional",
+    };
+
+    // Find the matching path
+    const path = roleMap[normalizedRole] || "/";
+    console.log("🚀 Redirecting to:", path);
+    
+    // Use window.location for immediate redirect
+    window.location.href = path;
+  };
+
+  const getRoleDisplayName = (role: string): string => {
+    const roleNames: Record<string, string> = {
+      "admin": "Admin",
+      "policymaker": "Policymaker",
+      "researcher": "Researcher",
+      "cso": "CSO",
+      "coordinator": "Coordinator",
+      "researcher_coordinator": "Research Coordinator",
+      "cso_coordinator": "CSO Coordinator",
+      "mental_health_coordinator": "Mental Health Coordinator",
+      "policymaker_coordinator": "Policy Coordinator",
+      "donor_coordinator": "Donor Coordinator",
+      "admin_coordinator": "Admin Coordinator",
+      "donor": "Donor",
+      "mental_health_professional": "Mental Health Professional",
+    };
+    return roleNames[role?.toLowerCase() || ""] || role || "User";
+  };
+
+  const getMetricColorClasses = (color: string) => {
+    const colors: Record<string, string> = {
+      cyan: "bg-cyan-500/10 border-cyan-500/20 text-cyan-400",
+      emerald: "bg-emerald-500/10 border-emerald-500/20 text-emerald-400",
+      yellow: "bg-yellow-500/10 border-yellow-500/20 text-yellow-400",
+      purple: "bg-purple-500/10 border-purple-500/20 text-purple-400",
+      blue: "bg-blue-500/10 border-blue-500/20 text-blue-400",
+      red: "bg-red-500/10 border-red-500/20 text-red-400",
+    };
+    return colors[color] || colors.cyan;
   };
 
   if (loading) {
@@ -280,18 +370,7 @@ export default function DashboardPage() {
   const config = roleConfig[user.role] || roleConfig.Policymaker;
   const metrics = config.metrics;
   const quickLinks = config.quickLinks;
-
-  const getMetricColorClasses = (color: string) => {
-    const colors: Record<string, string> = {
-      cyan: "bg-cyan-500/10 border-cyan-500/20 text-cyan-400",
-      emerald: "bg-emerald-500/10 border-emerald-500/20 text-emerald-400",
-      yellow: "bg-yellow-500/10 border-yellow-500/20 text-yellow-400",
-      purple: "bg-purple-500/10 border-purple-500/20 text-purple-400",
-      blue: "bg-blue-500/10 border-blue-500/20 text-blue-400",
-      red: "bg-red-500/10 border-red-500/20 text-red-400",
-    };
-    return colors[color] || colors.cyan;
-  };
+  const roleDisplayName = getRoleDisplayName(user.role);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
@@ -320,6 +399,18 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-3">
+              {/* NEW: Go to Your Dashboard Button */}
+              <button
+                onClick={() => redirectUser(user.role)}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 rounded-xl text-white font-medium transition-all shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 hover:scale-105"
+              >
+                <UserCog className="w-4 h-4" />
+                <span className="text-sm">
+                  Go to {roleDisplayName} Dashboard
+                </span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
               <div className="text-right hidden sm:block">
                 <p className="text-slate-400 text-xs">{currentTime}</p>
                 <p className="text-slate-500 text-xs">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
@@ -335,7 +426,22 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-
+      <div className="px-4 md:px-8 py-6">
+        {/* Add Advocacy Widget */}
+        <div className="mb-6">
+          <AdvocacyWidget />
+        </div>
+        {/* Add Alerts Widget */}
+        <div className="mb-6">
+          <AlertsWidget 
+            userRole={user?.role}
+            userCountry={user?.country}
+            userId={user?.id}
+            limit={3}
+            showViewAll={true}
+          />
+        </div>
+        </div>
       <div className="px-4 md:px-8 py-6">
         {/* Metrics Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import {
   FileText,
@@ -19,6 +20,8 @@ import {
   BarChart3,
   Users,
   TrendingUp,
+  LogOut,
+  ArrowLeft,
 } from "lucide-react";
 
 interface Survey {
@@ -43,24 +46,99 @@ const categoryColors: Record<string, string> = {
 };
 
 export default function SurveysDashboardPage() {
+  const router = useRouter();
   const [surveys, setSurveys] = useState<Survey[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [user, setUser] = useState<any>(null);
   const [completedSurveys, setCompletedSurveys] = useState<Set<string>>(new Set());
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
-    checkUser();
+    checkAuth();
   }, []);
 
-  const checkUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+  useEffect(() => {
     if (user) {
-      setUser(user);
-      await fetchUserCompletedSurveys(user.id);
+      fetchUserCompletedSurveys(user.id);
+      fetchSurveys();
     }
-    await fetchSurveys();
+  }, [user]);
+
+  const checkAuth = async () => {
+    try {
+      console.log("🔐 Surveys Dashboard - Verifying security clearance...");
+
+      // 1. First check localStorage for user profile
+      const userStr = localStorage.getItem("user");
+      
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          if (userData.status === "Approved") {
+            setUser(userData);
+            setIsAuthorized(true);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          localStorage.removeItem("user");
+        }
+      }
+
+      // 2. Fetch active authentication token session from Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.log("No active session found, routing back to login page.");
+        router.push("/login");
+        return;
+      }
+
+      // 3. Fetch structural profile record from public.users table
+      const { data: userData, error: dbError } = await supabase
+        .from("users")
+        .select("id, full_name, email, role, status, country")
+        .eq("id", session.user.id)
+        .single();
+
+      if (dbError || !userData) {
+        console.error("Profile matching session ID not found:", dbError?.message);
+        router.push("/login");
+        return;
+      }
+
+      // 4. Approval Constraint Guard Rule
+      if (userData.status !== "Approved") {
+        console.log("Account is not yet marked as Approved.");
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      // 5. Cache user data in localStorage
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      setIsAuthorized(true);
+      
+    } catch (error) {
+      console.error("Critical error encountered during security verification:", error);
+      router.push("/login");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      localStorage.removeItem("user");
+      localStorage.removeItem("session");
+      localStorage.removeItem("token");
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   const fetchUserCompletedSurveys = async (userId: string) => {
@@ -86,7 +164,7 @@ export default function SurveysDashboardPage() {
       const { data, error } = await supabase
         .from("surveys")
         .select("*")
-        .eq("status", "Active")
+        .in("status", ["Active", "published"])
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -135,18 +213,24 @@ export default function SurveysDashboardPage() {
     total: surveys.length,
     categories: new Set(surveys.map(s => s.category)).size,
     totalResponses: surveys.reduce((acc, s) => acc + (s.response_count || 0), 0),
-    completionRate: user ? Math.round((completedSurveys.size / surveys.length) * 100) : 0,
+    completionRate: user ? Math.round((completedSurveys.size / (surveys.length || 1)) * 100) : 0,
   };
 
+  // Show loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <Loader2 className="w-16 h-16 text-cyan-400 animate-spin mx-auto mb-4" />
           <p className="text-slate-300">Loading surveys...</p>
         </div>
       </div>
     );
+  }
+
+  // If not authorized, return null
+  if (!isAuthorized || !user) {
+    return null;
   }
 
   return (
@@ -154,6 +238,20 @@ export default function SurveysDashboardPage() {
       {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-8 md:py-10">
+          <div className="flex justify-between items-center mb-4">
+            <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
+              <ArrowLeft className="w-4 h-4" />
+              Back to Dashboard
+            </Link>
+            <button
+              onClick={logout}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="text-sm hidden sm:inline">Logout</span>
+            </button>
+          </div>
+
           <div className="flex justify-between items-start flex-wrap gap-4">
             <div>
               <div className="flex items-center gap-3 mb-4">
@@ -177,13 +275,15 @@ export default function SurveysDashboardPage() {
               </p>
             </div>
 
-            <button
-              onClick={fetchSurveys}
-              className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              <span className="text-sm hidden sm:inline">Refresh</span>
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={fetchSurveys}
+                className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span className="text-sm hidden sm:inline">Refresh</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -1,7 +1,10 @@
+// app/submissions/page.tsx - Fixed version
+
 "use client";
 
 import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   FileText,
   Upload,
@@ -81,6 +84,8 @@ const roles = [
 ];
 
 export default function SubmissionsPage() {
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
   const [formData, setFormData] = useState<ReportFormData>({
     country: "",
     submitted_by: "",
@@ -102,53 +107,82 @@ export default function SubmissionsPage() {
   const [dragActive, setDragActive] = useState(false);
 
   useEffect(() => {
-    fetchRecentSubmissions();
+    checkUser();
   }, []);
-  useEffect(() => {
-    loadUser();
-  }, []);
-  
-  const loadUser = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-  
-    if (!user) return;
-  
-    setFormData((prev) => ({
-      ...prev,
-      submitted_by:
-        user.user_metadata?.full_name ||
-        user.email ||
-        "",
-      submitted_by_role:
-        user.user_metadata?.role ||
-        "Researcher",
-    }));
+
+  const checkUser = async () => {
+    try {
+      // First check localStorage
+      const userStr = localStorage.getItem("user");
+      if (userStr) {
+        const userData = JSON.parse(userStr);
+        setUser(userData);
+        setFormData(prev => ({
+          ...prev,
+          submitted_by: userData.full_name || userData.email || "",
+          submitted_by_role: userData.role || "Researcher",
+        }));
+        await fetchRecentSubmissions(userData);
+        return;
+      }
+
+      // Check Supabase session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        router.push("/login");
+        return;
+      }
+
+      // Get user profile
+      const { data: profile, error: profileError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", session.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        router.push("/login");
+        return;
+      }
+
+      setUser(profile);
+      setFormData(prev => ({
+        ...prev,
+        submitted_by: profile.full_name || profile.email || "",
+        submitted_by_role: profile.role || "Researcher",
+      }));
+      
+      localStorage.setItem("user", JSON.stringify(profile));
+      await fetchRecentSubmissions(profile);
+      
+    } catch (error) {
+      console.error("Auth error:", error);
+      router.push("/login");
+    }
   };
-  const fetchRecentSubmissions = async () => {
+
+  const fetchRecentSubmissions = async (currentUser?: any) => {
     setLoadingSubmissions(true);
     try {
-      const {
-        data: authData
-      } = await supabase.auth.getUser();
+      const userId = currentUser?.id || user?.id;
       
-      const { data, error } =
-      await supabase
-      .from("submissions")
-      .select("*")
-      .eq(
-        "user_id",
-        authData.user?.id
-      )
-      .order(
-        "created_at",
-        { ascending: false }
-      )
-      .limit(5);
+      if (!userId) {
+        setRecentSubmissions([]);
+        setLoadingSubmissions(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("submissions")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(5);
       
-      if (!error) {
-        setRecentSubmissions(data);
+      if (error) {
+        console.error("Error fetching submissions:", error);
+      } else {
+        setRecentSubmissions(data || []);
       }
     } catch (error) {
       console.error("Error fetching recent submissions:", error);
@@ -202,155 +236,152 @@ export default function SubmissionsPage() {
     }
   };
 
-  const handleSubmit = async (
-    e: React.FormEvent<HTMLFormElement>
-  ) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-  
     setSubmitting(true);
     setUploadProgress(0);
-  
+
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-  
+      // Check if user is authenticated
       if (!user) {
         alert("Please login first");
+        setSubmitting(false);
         return;
       }
-  
+
+      // Validate required fields
+      if (!formData.title || !formData.country || !formData.report_type) {
+        alert("Please fill in all required fields");
+        setSubmitting(false);
+        return;
+      }
+
+      // Validate file
+      if (!file) {
+        alert("Please attach a report file");
+        setSubmitting(false);
+        return;
+      }
+
       let fileUrl = "";
-  
+
+      // Upload file to storage
       if (file) {
         const allowedTypes = [
           "application/pdf",
           "application/msword",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ];
-  
+
         if (!allowedTypes.includes(file.type)) {
           alert("Only PDF, DOC and DOCX files are allowed");
+          setSubmitting(false);
           return;
         }
-  
+
         if (file.size > 25 * 1024 * 1024) {
           alert("File size must not exceed 25MB");
+          setSubmitting(false);
           return;
         }
-  
-        const filename =
-          `${user.id}/${Date.now()}-${file.name}`;
-  
+
+        const filename = `${user.id}/${Date.now()}-${file.name}`;
+
         setUploadProgress(20);
-  
-        const { data, error } =
-          await supabase.storage
-            .from("reports")
-            .upload(filename, file);
-  
-        if (error) throw error;
-  
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from("reports")
+          .upload(filename, file);
+
+        if (uploadError) {
+          console.error("Upload error:", uploadError);
+          throw uploadError;
+        }
+
         setUploadProgress(80);
-  
-        const { data: publicData } =
-          supabase.storage
-            .from("reports")
-            .getPublicUrl(data.path);
-  
+
+        const { data: publicData } = supabase.storage
+          .from("reports")
+          .getPublicUrl(uploadData.path);
+
         fileUrl = publicData.publicUrl;
-  
+
         setUploadProgress(100);
       }
-  
-      const { error } =
-        await supabase
-          .from("submissions")
-          .insert([
-            {
-              user_id: user.id,
-  
-              title: formData.title,
-              description:
-                formData.description,
-  
-              country: formData.country,
-  
-              report_type:
-                formData.report_type,
-  
-              submitted_by:
-                formData.submitted_by,
-  
-              submitted_by_role:
-                formData.submitted_by_role,
-  
-              priority:
-                formData.priority,
-  
-              sdg_alignment:
-                formData.sdg_alignment,
-  
-              file_url: fileUrl,
-  
-              status: "Pending",
-            },
-          ]);
-  
-      if (error) throw error;
-  
+
+      // Insert submission - FIX: Use the correct user ID
+      const { data: submissionData, error: submissionError } = await supabase
+        .from("submissions")
+        .insert({
+          user_id: user.id, // This should be the auth.users id
+          title: formData.title,
+          description: formData.description,
+          country: formData.country,
+          report_type: formData.report_type,
+          submitted_by: formData.submitted_by || user.full_name || user.email,
+          submitted_by_role: formData.submitted_by_role || user.role || "Researcher",
+          priority: formData.priority,
+          sdg_alignment: formData.sdg_alignment,
+          file_url: fileUrl,
+          status: "Pending",
+          approval_status: "Pending",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select();
+
+      if (submissionError) {
+        console.error("Submission error:", submissionError);
+        throw submissionError;
+      }
+
+      console.log("✅ Submission successful:", submissionData);
+
       setShowSuccess(true);
-  
+      
+      // Reset form
       setFormData({
         country: "",
-        submitted_by:
-          formData.submitted_by,
-        submitted_by_role:
-          formData.submitted_by_role,
+        submitted_by: formData.submitted_by,
+        submitted_by_role: formData.submitted_by_role,
         report_type: "",
         title: "",
         description: "",
         priority: "Medium",
         sdg_alignment: [],
       });
-  
+      
       setFile(null);
-  
-      fetchRecentSubmissions();
-  
+      
+      // Refresh recent submissions
+      await fetchRecentSubmissions(user);
+
       setTimeout(() => {
         setShowSuccess(false);
       }, 5000);
-  
-    } catch (error) {
-      console.error(error);
-  
-      alert(
-        "Submission failed. Please try again."
-      );
+
+    } catch (error: any) {
+      console.error("❌ Submission error:", error);
+      alert(`Submission failed: ${error.message || "Please try again."}`);
     } finally {
       setSubmitting(false);
       setUploadProgress(0);
     }
   };
 
-  const getStatusColor = (
-    status: string
-  ) => {
+  const getStatusColor = (status: string) => {
     switch (status) {
       case "Approved":
         return "bg-green-500/20 text-green-400 border border-green-500/30";
-  
       case "Pending":
         return "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30";
-  
       case "Rejected":
         return "bg-red-500/20 text-red-400 border border-red-500/30";
-  
       default:
         return "bg-slate-500/20 text-slate-400";
     }
   };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">

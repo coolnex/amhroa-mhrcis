@@ -5,7 +5,6 @@ import { useState, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { hashPassword } from "@/lib/password-utils";
 import {
   Mail,
   Lock,
@@ -22,7 +21,7 @@ import {
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [step, setStep] = useState<"email" | "reset">("email");
+  const [step, setStep] = useState<"email" | "reset" | "success">("email");
   const [email, setEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -30,8 +29,6 @@ function ResetPasswordForm() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
   const [checkingEmail, setCheckingEmail] = useState(false);
   const [initialCheckDone, setInitialCheckDone] = useState(false);
 
@@ -59,20 +56,31 @@ function ResetPasswordForm() {
 
   const checkUserExists = async (emailToCheck: string) => {
     try {
-      console.log("Searching for email:", emailToCheck);
+      console.log("🔍 Checking if user exists:", emailToCheck);
       
+      // First check if user exists in auth.users
+      const { data: authUsers, error: authError } = await supabase
+        .from('auth.users')
+        .select('id, email')
+        .eq('email', emailToCheck);
+      
+      if (authError) {
+        console.error("Auth check error:", authError);
+      }
+      
+      // Check if user exists in public.users table
       const { data: user, error: userError } = await supabase
         .from("users")
-        .select("id, full_name, email")
+        .select("id, full_name, email, auth_user_id")
         .eq("email", emailToCheck)
         .single();
 
       if (userError || !user) {
-        console.log("User not found");
+        console.log("❌ User not found in public.users");
         return null;
       }
 
-      console.log("User found:", user.id);
+      console.log("✅ User found:", user);
       return user;
     } catch (err) {
       console.error("Error checking user:", err);
@@ -97,7 +105,6 @@ function ResetPasswordForm() {
     const user = await checkUserExists(emailValue);
     
     if (user) {
-      setUserId(user.id);
       setStep("reset");
     } else {
       setError("No account found with this email address. Please check and try again.");
@@ -139,7 +146,6 @@ function ResetPasswordForm() {
     const user = await checkUserExists(email);
     
     if (user) {
-      setUserId(user.id);
       setStep("reset");
     } else {
       setError("No account found with this email address");
@@ -172,28 +178,21 @@ function ResetPasswordForm() {
     }
   
     try {
-      // Use the shared hashPassword function
-      const hashedPassword = await hashPassword(newPassword);
-      
-      console.log("Password hashed successfully, length:", hashedPassword.length);
-  
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({ 
-          password_hash: hashedPassword,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", userId);
-  
+      // Update password using Supabase Auth
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
       if (updateError) {
         console.error("Update error:", updateError);
-        setError("Failed to reset password. Please try again.");
+        setError(updateError.message || "Failed to reset password. Please try again.");
         setLoading(false);
         return;
       }
-  
-      console.log("Password updated successfully for user:", userId);
-      setSuccess(true);
+
+      console.log("✅ Password updated successfully for user");
+      
+      setStep("success");
       setTimeout(() => {
         router.push("/login");
       }, 3000);
@@ -205,7 +204,7 @@ function ResetPasswordForm() {
     }
   };
 
-  if (success) {
+  if (step === "success") {
     return (
       <div className="max-w-md w-full">
         <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-8 text-center">

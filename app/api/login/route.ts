@@ -1,35 +1,26 @@
 // app/api/login/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
-import { verifyPassword } from "@/lib/password-utils";
+import { supabase } from "@/lib/supabase";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const body = await req.json();
-    const { email, password } = body;
+    const { email, password } = await request.json();
 
-    if (!email || !password) {
-      return NextResponse.json(
-        { success: false, message: "Email and password are required" },
-        { status: 400 }
-      );
-    }
+    console.log("Searching email:", email);
 
-    const cleanEmail = email.trim().toLowerCase();
-
-    console.log("Searching email:", cleanEmail);
-
-    const { data: user, error: userError } = await supabaseAdmin
+    // Find user by email
+    const { data: user, error } = await supabase
       .from("users")
       .select("*")
-      .ilike("email", cleanEmail)
-      .maybeSingle();
+      .eq("email", email)
+      .single();
 
-    if (userError || !user) {
-      console.log("User not found:", userError?.message);
+    if (error || !user) {
+      console.log("User not found:", error?.message);
       return NextResponse.json(
-        { success: false, message: "Invalid email or password" },
+        { success: false, message: "Invalid credentials" },
         { status: 401 }
       );
     }
@@ -38,118 +29,65 @@ export async function POST(req: Request) {
     console.log("User status:", user.status);
     console.log("User role:", user.role);
 
-    // Check account status
-    if (user.status === "Pending") {
+    // Check if user is approved
+    if (user.status !== "Approved") {
       return NextResponse.json(
-        { 
-          success: false, 
-          message: "Your account is pending approval. You will receive an email once approved." 
-        },
-        { status: 403 }
-      );
-    }
-
-    if (user.status === "Rejected") {
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: "Your account application was rejected. Please contact support." 
-        },
-        { status: 403 }
-      );
-    }
-
-    if (user.status === "Suspended") {
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: "Your account has been suspended. Please contact support." 
-        },
-        { status: 403 }
-      );
-    }
-
-    if (!user.password_hash) {
-      console.log("No password hash found");
-      return NextResponse.json(
-        { success: false, message: "Invalid email or password" },
+        { success: false, message: "Account pending approval" },
         { status: 401 }
       );
     }
 
-    const isMatch = await verifyPassword(password, user.password_hash);
-    console.log("Password match result:", isMatch);
+    // Verify password
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    console.log("Password match result:", isValid);
 
-    if (!isMatch) {
+    if (!isValid) {
       return NextResponse.json(
-        { success: false, message: "Invalid email or password" },
+        { success: false, message: "Invalid credentials" },
         { status: 401 }
-      );
-    }
-
-    if (!process.env.JWT_SECRET) {
-      console.error("JWT_SECRET is not defined");
-      return NextResponse.json(
-        { success: false, message: "Server configuration error" },
-        { status: 500 }
       );
     }
 
     // Create JWT token
     const token = jwt.sign(
-      {
-        id: user.id,
+      { 
+        id: user.id, 
         email: user.email,
-        role: user.role,
-        full_name: user.full_name,
+        role: user.role 
       },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || "your-secret-key",
       { expiresIn: "7d" }
     );
 
     console.log("JWT Token created successfully");
 
-    // Update last login time
-    await supabaseAdmin
-      .from("users")
-      .update({ last_login: new Date().toISOString() })
-      .eq("id", user.id);
+    // Set the session variable for RLS
+    await supabase.rpc('set_current_user_id', { user_id: user.id });
 
-    const userData = {
-      id: user.id,
-      full_name: user.full_name,
-      email: user.email,
-      role: user.role,
-      organization: user.organization,
-      country: user.country,
-      status: user.status,
-      created_at: user.created_at,
-    };
+    // Return user data without password
+    const { password_hash, ...userWithoutPassword } = user;
 
-    console.log("Login successful, returning user data:", userData);
-
-    // Return with proper headers
+    // Set the token in a cookie for middleware
     const response = NextResponse.json({
       success: true,
-      message: "Login successful",
       token,
-      user: userData,
+      user: userWithoutPassword,
     });
 
-    // Also set cookie for additional persistence
-    response.cookies.set("auth_token", token, {
-      httpOnly: false,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+    response.cookies.set('auth_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7, // 7 days
-      path: "/",
+      path: '/',
     });
 
     return response;
+
   } catch (error) {
     console.error("Login error:", error);
     return NextResponse.json(
-      { success: false, message: "Login failed. Please try again." },
+      { success: false, message: "Login failed" },
       { status: 500 }
     );
   }

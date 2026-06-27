@@ -25,6 +25,8 @@ export interface Country {
     population?: number;
     area?: number;
   }
+
+  
   
   // Complete African Countries Data
   export const africanCountries: Country[] = [

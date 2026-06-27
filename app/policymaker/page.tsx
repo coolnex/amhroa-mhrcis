@@ -3,6 +3,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AlertsWidget } from "@/components/AlertsWidget";
+import { GovernanceAlertsWidget } from "@/components/GovernanceAlertsWidget";
 import { supabase } from "@/lib/supabase";
 import {
   TrendingUp,
@@ -75,6 +77,7 @@ export default function PolicymakerDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedCountry, setSelectedCountry] = useState("Kenya");
   const [countryData, setCountryData] = useState<CountryData | null>(null);
   const [countries, setCountries] = useState<CountryData[]>([]);
@@ -85,37 +88,86 @@ export default function PolicymakerDashboard() {
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>("");
   const [userRole, setUserRole] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     checkAuth();
-    fetchData();
-    setLastUpdated(new Date().toLocaleString());
-  }, [selectedCountry]);
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      fetchData();
+      setLastUpdated(new Date().toLocaleString());
+    }
+  }, [selectedCountry, user]);
 
   const checkAuth = async () => {
+    setIsLoading(true);
     try {
-      const token = localStorage.getItem("token");
+      // First check localStorage
       const userStr = localStorage.getItem("user");
+      
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          
+          // Check if user has policymaker or admin role
+          if (userData.role !== "Policymaker" && userData.role !== "Admin" && userData.role !== "policymaker") {
+            router.push("/dashboard");
+            return;
+          }
 
-      if (!token || !userStr) {
+          if (userData.status !== "Approved") {
+            router.push("/login?message=Account pending approval");
+            return;
+          }
+
+          setUser(userData);
+          setUserRole(userData.role);
+          setIsLoading(false);
+          return;
+        } catch (e) {
+          localStorage.removeItem("user");
+        }
+      }
+
+      // Check Supabase session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
         router.push("/login");
         return;
       }
 
-      const userData = JSON.parse(userStr);
-      
-      if (userData.role !== "Policymaker" && userData.role !== "Admin") {
+      // Get user profile
+      const { data: profile, error: profileError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("auth_user_id", session.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        router.push("/login");
+        return;
+      }
+
+      // Check if user has policymaker role
+      if (profile.role !== "Policymaker" && profile.role !== "Admin" && profile.role !== "policymaker") {
         router.push("/dashboard");
         return;
       }
 
-      if (userData.status !== "Approved") {
+      if (profile.status !== "Approved") {
         router.push("/login?message=Account pending approval");
         return;
       }
 
-      setUser(userData);
-      setUserRole(userData.role);
+      // Cache in localStorage
+      localStorage.setItem("user", JSON.stringify(profile));
+      setUser(profile);
+      setUserRole(profile.role);
+      setIsLoading(false);
+
     } catch (error) {
       console.error("Auth error:", error);
       router.push("/login");
@@ -124,14 +176,19 @@ export default function PolicymakerDashboard() {
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
+    
     try {
       // Fetch countries list
-      const { data: countriesData } = await supabase
+      const { data: countriesData, error: countriesError } = await supabase
         .from("countries")
         .select("id, country_name, region, reform_score, legislation_score, implementation_score, financing_score, sdg_score, workforce_score, population")
         .order("country_name");
 
-      if (countriesData) {
+      if (countriesError) {
+        console.error("Error fetching countries:", countriesError);
+        setError("Failed to load country data");
+      } else if (countriesData && countriesData.length > 0) {
         setCountries(countriesData);
         
         // Find selected country data
@@ -149,26 +206,69 @@ export default function PolicymakerDashboard() {
             region: c.region,
           }));
           setBenchmarks(benchmarksData);
+        } else if (countriesData.length > 0) {
+          // If selected country not found, use the first one
+          setSelectedCountry(countriesData[0].country_name);
+          setCountryData(countriesData[0]);
         }
       }
 
-      // Mock policies data (would come from database)
-      setPolicies([
-        { id: "1", title: "National Mental Health Act", status: "Passed", sdg_alignment: "SDG 3.4", implementation_progress: 85 },
-        { id: "2", title: "Community Mental Health Framework", status: "In Committee", sdg_alignment: "SDG 3.4, 10.2", implementation_progress: 40 },
-        { id: "3", title: "Workplace Mental Health Regulations", status: "Drafting", sdg_alignment: "SDG 8.5", implementation_progress: 15 },
-        { id: "4", title: "Suicide Prevention Strategy", status: "Under Review", sdg_alignment: "SDG 3.4", implementation_progress: 55 },
-      ]);
+      // Fetch policies from database
+      const { data: policiesData, error: policiesError } = await supabase
+        .from("policies")
+        .select("*")
+        .eq("country", selectedCountry)
+        .order("created_at", { ascending: false });
 
-      // Mock timeline data
-      setTimeline([
-        { id: "1", title: "Mental Health Act Passage", date: "2024 Q4", status: "completed", description: "Legislation passed by parliament" },
-        { id: "2", title: "National Commission Establishment", date: "2025 Q1", status: "in-progress", description: "Commission structure being defined" },
-        { id: "3", title: "County-Level Implementation", date: "2025 Q3", status: "pending", description: "Rollout to 47 counties" },
-        { id: "4", title: "Continental Compliance Audit", date: "2026 Q1", status: "pending", description: "AMHROA compliance review" },
-      ]);
+      if (policiesError) {
+        console.error("Error fetching policies:", policiesError);
+      } else if (policiesData && policiesData.length > 0) {
+        setPolicies(policiesData.map(p => ({
+          id: p.id,
+          title: p.title,
+          status: p.status || "Drafting",
+          sdg_alignment: p.sdg_alignment || "SDG 3.4",
+          implementation_progress: p.implementation_progress || 0,
+          effective_date: p.effective_date,
+        })));
+      } else {
+        // Fallback to default policies if none in database
+        setPolicies([
+          { id: "1", title: "National Mental Health Act", status: "Passed", sdg_alignment: "SDG 3.4", implementation_progress: 85 },
+          { id: "2", title: "Community Mental Health Framework", status: "In Committee", sdg_alignment: "SDG 3.4, 10.2", implementation_progress: 40 },
+          { id: "3", title: "Workplace Mental Health Regulations", status: "Drafting", sdg_alignment: "SDG 8.5", implementation_progress: 15 },
+          { id: "4", title: "Suicide Prevention Strategy", status: "Under Review", sdg_alignment: "SDG 3.4", implementation_progress: 55 },
+        ]);
+      }
 
-      // AI Recommendations based on country data
+      // Fetch timeline milestones from database
+      const { data: timelineData, error: timelineError } = await supabase
+        .from("policy_timeline")
+        .select("*")
+        .eq("country", selectedCountry)
+        .order("date", { ascending: true });
+
+      if (timelineError) {
+        console.error("Error fetching timeline:", timelineError);
+      } else if (timelineData && timelineData.length > 0) {
+        setTimeline(timelineData.map(t => ({
+          id: t.id,
+          title: t.title,
+          date: t.date,
+          status: t.status as "completed" | "in-progress" | "pending",
+          description: t.description,
+        })));
+      } else {
+        // Fallback timeline
+        setTimeline([
+          { id: "1", title: "Mental Health Act Passage", date: "2024 Q4", status: "completed", description: "Legislation passed by parliament" },
+          { id: "2", title: "National Commission Establishment", date: "2025 Q1", status: "in-progress", description: "Commission structure being defined" },
+          { id: "3", title: "County-Level Implementation", date: "2025 Q3", status: "pending", description: "Rollout to 47 counties" },
+          { id: "4", title: "Continental Compliance Audit", date: "2026 Q1", status: "pending", description: "AMHROA compliance review" },
+        ]);
+      }
+
+      // Generate AI Recommendations based on country data
       if (countryData) {
         const recommendations = [];
         if (countryData.legislation_score < 70) {
@@ -186,8 +286,10 @@ export default function PolicymakerDashboard() {
         recommendations.push("Align reporting framework with continental SDG indicators by Q3 2026");
         setAiRecommendations(recommendations);
       }
+
     } catch (error) {
       console.error("Error fetching data:", error);
+      setError("Failed to load dashboard data");
     } finally {
       setLoading(false);
     }
@@ -220,12 +322,41 @@ export default function PolicymakerDashboard() {
     return "text-red-400";
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-slate-300">Loading Policy Intelligence...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
+        <div className="text-center">
+          <AlertTriangle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">Error Loading Dashboard</h2>
+          <p className="text-slate-400 mb-6">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors"
+          >
+            Refresh Page
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-300">Loading country data...</p>
         </div>
       </div>
     );
@@ -239,6 +370,13 @@ export default function PolicymakerDashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
+      <GovernanceAlertsWidget 
+        userRole={user?.role || "policymaker"} 
+        userCountry={selectedCountry} 
+        limit={5}
+        showViewAll={true}
+      />
+      
       {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-6 md:py-8">
@@ -282,6 +420,17 @@ export default function PolicymakerDashboard() {
       </div>
 
       <div className="px-4 md:px-8 py-6">
+        {/* Alerts Widget */}
+        <div className="mb-6">
+          <AlertsWidget 
+            userRole={user?.role}
+            userCountry={user?.country || selectedCountry}
+            userId={user?.id}
+            limit={3}
+            showViewAll={true}
+          />
+        </div>
+
         {/* Country Selector */}
         <div className="flex justify-between items-center flex-wrap gap-4 mb-6">
           <div className="flex items-center gap-4">
@@ -456,11 +605,11 @@ export default function PolicymakerDashboard() {
                             </div>
                             <span className="text-slate-300 text-sm">{policy.implementation_progress}%</span>
                           </div>
-                          <div className="p-4">
-                            <button className="p-1.5 hover:bg-slate-600 rounded-lg transition-colors">
-                              <Eye className="w-4 h-4 text-slate-400" />
-                            </button>
-                          </div>
+                        </td>
+                        <td className="p-4">
+                          <button className="p-1.5 hover:bg-slate-600 rounded-lg transition-colors">
+                            <Eye className="w-4 h-4 text-slate-400" />
+                          </button>
                         </td>
                       </tr>
                     ))}

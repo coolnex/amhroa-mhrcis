@@ -3,6 +3,7 @@
 
 import { CountrySelect } from "@/components/ui/country-select";
 import { StateSelect } from "@/components/ui/state-select";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useState, useEffect, useMemo } from "react";
 import {
@@ -11,6 +12,7 @@ import {
   Clock,
   CheckCircle,
   XCircle,
+  ArrowLeft,
   Eye,
   Search,
   Download,
@@ -29,7 +31,9 @@ import {
   Loader2,
   User,
   Upload,
+  LogOut,
 } from "lucide-react";
+import Link from "next/link";
 
 interface FieldReport {
   id: string;
@@ -95,6 +99,7 @@ const statusConfig: Record<string, { label: string; color: string; icon: any }> 
 };
 
 export default function FieldReportsPage() {
+  const router = useRouter();
   const [reports, setReports] = useState<FieldReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -110,6 +115,7 @@ export default function FieldReportsPage() {
   const [selectedCountryCode, setSelectedCountryCode] = useState("");
   const [selectedStateId, setSelectedStateId] = useState("");
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [isAuthorized, setIsAuthorized] = useState(false);
   
   const [formData, setFormData] = useState<ReportFormData>({
     title: "",
@@ -125,27 +131,87 @@ export default function FieldReportsPage() {
   });
 
   useEffect(() => {
-    checkUser();
-    fetchReports();
+    checkAuth();
   }, []);
 
-  const checkUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      window.location.href = "/login";
-      return;
+  useEffect(() => {
+    if (user) {
+      fetchReports();
     }
-    setUser(user);
-    
-    // Pre-fill reporter name from user profile
-    const { data: profile } = await supabase
-      .from("users")
-      .select("full_name")
-      .eq("id", user.id)
-      .single();
-    
-    if (profile?.full_name) {
-      setFormData(prev => ({ ...prev, reporter_name: profile.full_name }));
+  }, [user]);
+
+  const checkAuth = async () => {
+    try {
+      console.log("🔐 Field Reports - Verifying security clearance...");
+
+      // 1. First check localStorage for user profile
+      const userStr = localStorage.getItem("user");
+      
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          if (userData.status === "Approved") {
+            setUser(userData);
+            setIsAuthorized(true);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          localStorage.removeItem("user");
+        }
+      }
+
+      // 2. Fetch active authentication token session from Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.log("No active session found, routing back to login page.");
+        router.push("/login");
+        return;
+      }
+
+      // 3. Fetch structural profile record from public.users table
+      const { data: userData, error: dbError } = await supabase
+        .from("users")
+        .select("id, full_name, email, role, status, country, phone, organization")
+        .eq("id", session.user.id)
+        .single();
+
+      if (dbError || !userData) {
+        console.error("Profile matching session ID not found:", dbError?.message);
+        router.push("/login");
+        return;
+      }
+
+      // 4. Approval Constraint Guard Rule
+      if (userData.status !== "Approved") {
+        console.log("Account is not yet marked as Approved.");
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      // 5. Cache user data in localStorage
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      setIsAuthorized(true);
+      
+    } catch (error) {
+      console.error("Critical error encountered during security verification:", error);
+      router.push("/login");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      localStorage.removeItem("user");
+      localStorage.removeItem("session");
+      localStorage.removeItem("token");
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
     }
   };
 
@@ -233,7 +299,7 @@ export default function FieldReportsPage() {
         country: "",
         location: "",
         description: "",
-        reporter_name: formData.reporter_name,
+        reporter_name: "",
         reporter_role: "",
         reporter_organization: "",
         reporter_contact: "",
@@ -303,22 +369,42 @@ export default function FieldReportsPage() {
   // Get unique countries for filter
   const uniqueCountries = [...new Set(reports.map(r => r.country).filter(Boolean))];
 
+  // Show loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <Loader2 className="w-16 h-16 text-cyan-400 animate-spin mx-auto mb-4" />
           <p className="text-slate-300">Loading field reports...</p>
         </div>
       </div>
     );
   }
 
+  // If not authorized, return null
+  if (!isAuthorized || !user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
-      {/* Header - same as before */}
+      {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-8 md:py-10">
+          <div className="flex justify-between items-center mb-4">
+            <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
+              <ArrowLeft className="w-4 h-4" />
+              Back to Dashboard
+            </Link>
+            <button
+              onClick={logout}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="text-sm hidden sm:inline">Logout</span>
+            </button>
+          </div>
+
           <div className="flex justify-between items-start flex-wrap gap-4">
             <div>
               <div className="flex items-center gap-3 mb-4">
@@ -539,7 +625,7 @@ export default function FieldReportsPage() {
                     value={formData.incident_type}
                     onChange={handleFormChange}
                     required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
                   >
                     <option value="">Select Type</option>
                     {incidentTypes.map(t => (
@@ -554,7 +640,7 @@ export default function FieldReportsPage() {
                     value={formData.severity}
                     onChange={handleFormChange}
                     required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
                   >
                     {severityLevels.map(s => (
                       <option key={s.value} value={s.value}>{s.label}</option>
@@ -572,7 +658,7 @@ export default function FieldReportsPage() {
                   onChange={handleFormChange}
                   required
                   placeholder="Brief descriptive title"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                 />
               </div>
 
@@ -604,7 +690,7 @@ export default function FieldReportsPage() {
                   required
                   rows={5}
                   placeholder="Detailed description of the incident, observation, or violation..."
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white resize-none"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
                 />
               </div>
 
@@ -617,7 +703,7 @@ export default function FieldReportsPage() {
                     value={formData.reporter_name}
                     onChange={handleFormChange}
                     required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                   />
                 </div>
                 <div>
@@ -628,7 +714,7 @@ export default function FieldReportsPage() {
                     value={formData.reporter_role}
                     onChange={handleFormChange}
                     required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                   />
                 </div>
                 <div>
@@ -638,7 +724,7 @@ export default function FieldReportsPage() {
                     name="reporter_organization"
                     value={formData.reporter_organization}
                     onChange={handleFormChange}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                   />
                 </div>
                 <div>
@@ -648,7 +734,7 @@ export default function FieldReportsPage() {
                     name="reporter_contact"
                     value={formData.reporter_contact}
                     onChange={handleFormChange}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                   />
                 </div>
               </div>

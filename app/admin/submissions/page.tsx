@@ -1,3 +1,4 @@
+// app/admin/submissions/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -18,6 +19,7 @@ import {
   User,
   AlertCircle,
   Loader2,
+  LogOut,
 } from "lucide-react";
 
 interface Submission {
@@ -43,6 +45,7 @@ export default function AdminSubmissionsPage() {
   const [countryFilter, setCountryFilter] = useState("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     checkAdminAuth();
@@ -50,54 +53,104 @@ export default function AdminSubmissionsPage() {
 
   const checkAdminAuth = async () => {
     try {
-      // Check localStorage for JWT token
-      const token = localStorage.getItem("token");
-      const userStr = localStorage.getItem("user");
+      console.log("🔐 Admin Submissions - Verifying security clearance...");
 
-      if (!token || !userStr) {
+      // 1. First check localStorage for user profile
+      const userStr = localStorage.getItem("user");
+      
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          if (userData.role === "Admin" && userData.status === "Approved") {
+            setUser(userData);
+            await fetchSubmissions();
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          localStorage.removeItem("user");
+        }
+      }
+
+      // 2. Fetch active authentication token session from Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.log("No active session found, routing back to login page.");
         router.push("/login");
         return;
       }
 
-      const userData = JSON.parse(userStr);
-      
+      // 3. Fetch structural profile record from public.users table
+      const { data: userData, error: dbError } = await supabase
+        .from("users")
+        .select("id, full_name, email, role, status")
+        .eq("auth_user_id", session.user.id)
+        .single();
+
+      if (dbError || !userData) {
+        console.error("Profile matching session ID not found:", dbError?.message);
+        router.push("/login");
+        return;
+      }
+
+      // 4. Admin Authorization Guard Rule
       if (userData.role !== "Admin") {
+        console.warn(`🛑 Unauthorized access attempt. User role "${userData.role}" is not an Admin.`);
         router.push("/dashboard");
         return;
       }
 
+      // 5. Approval Constraint Guard Rule
       if (userData.status !== "Approved") {
+        console.log("Admin account is not yet marked as Approved.");
         router.push("/login?message=Account pending approval");
         return;
       }
 
+      // 6. Cache user data in localStorage
+      localStorage.setItem("user", JSON.stringify(userData));
       setUser(userData);
       await fetchSubmissions();
+
     } catch (error) {
-      console.error("Auth error:", error);
+      console.error("Critical error encountered during admin security verification:", error);
+      setError("Failed to authenticate. Please try again.");
       router.push("/login");
+    } finally {
+      setLoading(false);
     }
   };
 
-  async function fetchSubmissions() {
+  const fetchSubmissions = async () => {
     setLoading(true);
+    setError(null);
+    
     try {
       const { data, error } = await supabase
         .from("submissions")
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error fetching submissions:", error);
+        setError("Failed to load submissions");
+        return;
+      }
+      
       setSubmissions(data || []);
     } catch (error) {
       console.error("Error fetching submissions:", error);
+      setError("An unexpected error occurred");
     } finally {
       setLoading(false);
     }
-  }
+  };
 
-  async function approveSubmission(id: string) {
+  const approveSubmission = async (id: string) => {
     setActionLoading(id);
+    setError(null);
+    
     try {
       const { error } = await supabase
         .from("submissions")
@@ -109,47 +162,73 @@ export default function AdminSubmissionsPage() {
         })
         .eq("id", id);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error approving submission:", error);
+        setError("Failed to approve submission");
+        return;
+      }
       
       await fetchSubmissions();
       alert("Submission approved successfully!");
     } catch (error) {
       console.error("Error approving submission:", error);
-      alert("Failed to approve submission");
+      setError("Failed to approve submission");
     } finally {
       setActionLoading(null);
     }
-  }
+  };
 
-  async function rejectSubmission(id: string) {
+  const rejectSubmission = async (id: string) => {
     const reason = prompt("Please enter reason for rejection:");
     
-    if (!reason) return;
+    if (reason === null) return; // User cancelled
+    if (!reason.trim()) {
+      alert("Please provide a reason for rejection");
+      return;
+    }
     
     setActionLoading(id);
+    setError(null);
+    
     try {
       const { error } = await supabase
         .from("submissions")
         .update({
           status: "Rejected",
           approval_status: "Rejected",
-          admin_comment: reason,
+          review_notes: reason,
           reviewed_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq("id", id);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error rejecting submission:", error);
+        setError("Failed to reject submission");
+        return;
+      }
       
       await fetchSubmissions();
       alert("Submission rejected successfully!");
     } catch (error) {
       console.error("Error rejecting submission:", error);
-      alert("Failed to reject submission");
+      setError("Failed to reject submission");
     } finally {
       setActionLoading(null);
     }
-  }
+  };
+
+  const logout = async () => {
+    try {
+      localStorage.removeItem("user");
+      localStorage.removeItem("session");
+      localStorage.removeItem("token");
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
 
   const filteredSubmissions = submissions.filter(sub => {
     const matchesSearch = sub.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -212,18 +291,44 @@ export default function AdminSubmissionsPage() {
               </p>
             </div>
 
-            <button
-              onClick={fetchSubmissions}
-              className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              <span className="text-sm hidden sm:inline">Refresh</span>
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={fetchSubmissions}
+                className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span className="text-sm hidden sm:inline">Refresh</span>
+              </button>
+              <button
+                onClick={logout}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="text-sm hidden sm:inline">Logout</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="px-4 md:px-8 py-6">
+        {/* Error Message */}
+        {error && (
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-red-400 font-semibold">Error</p>
+              <p className="text-red-300 text-sm">{error}</p>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="ml-auto text-red-400 hover:text-red-300"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
@@ -353,15 +458,17 @@ export default function AdminSubmissionsPage() {
                     )}
 
                     <div className="flex flex-wrap gap-3 pt-4 border-t border-slate-700">
-                      <a
-                        href={submission.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition-colors"
-                      >
-                        <Eye className="w-4 h-4" />
-                        View Report
-                      </a>
+                      {submission.file_url && (
+                        <a
+                          href={submission.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition-colors"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View Report
+                        </a>
+                      )}
 
                       {submission.status === "Pending" && (
                         <>

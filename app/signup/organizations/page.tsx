@@ -1,11 +1,10 @@
 // app/signup/organizations/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import bcrypt from "bcryptjs";
+import { CountrySelect } from "@/components/ui/country-select";
 import {
   Building2,
   Mail,
@@ -16,10 +15,9 @@ import {
   AlertCircle,
   ArrowLeft,
   Shield,
-  User,
   Loader2,
 } from "lucide-react";
-import { CountrySelect } from "@/components/ui/country-select";
+import Link from "next/link";
 
 const organizationTypes = [
   "Non-Governmental Organization (NGO)",
@@ -43,8 +41,15 @@ const focusAreasOptions = [
   "Community Mental Health", "Substance Abuse", "Disability Rights", "Human Rights",
 ];
 
-export default function OrganizationSignupPage() {
+export default function OrganizationRegisterPage() {
   const router = useRouter();
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [selectedCountryCode, setSelectedCountryCode] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  
   const [formData, setFormData] = useState({
     name: "",
     type: "",
@@ -59,10 +64,70 @@ export default function OrganizationSignupPage() {
     focus_areas: [] as string[],
     agree_terms: false,
   });
-  const [selectedCountryCode, setSelectedCountryCode] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      console.log("🔐 Organization Registration - Verifying user...");
+
+      // 1. First check localStorage for user profile
+      const userStr = localStorage.getItem("user");
+      
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          if (userData.status === "Approved") {
+            setUser(userData);
+            setIsLoading(false);
+            return;
+          }
+        } catch (e) {
+          localStorage.removeItem("user");
+        }
+      }
+
+      // 2. Fetch active authentication token session from Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.log("No active session found, routing back to login page.");
+        router.push("/login");
+        return;
+      }
+
+      // 3. Fetch structural profile record from public.users table
+      const { data: userData, error: dbError } = await supabase
+        .from("users")
+        .select("id, full_name, email, role, status, country")
+        .eq("id", session.user.id)
+        .single();
+
+      if (dbError || !userData) {
+        console.error("Profile matching session ID not found:", dbError?.message);
+        router.push("/login");
+        return;
+      }
+
+      // 4. Check if user is approved
+      if (userData.status !== "Approved") {
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      // 5. Cache user data
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      
+    } catch (error) {
+      console.error("Auth error:", error);
+      router.push("/login");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -72,7 +137,6 @@ export default function OrganizationSignupPage() {
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
-    if (error) setError(null);
   };
 
   const handleCountrySelect = (code: string, name: string) => {
@@ -101,139 +165,87 @@ export default function OrganizationSignupPage() {
     }
 
     try {
-      // Check if contact email already exists
-      const { data: existingUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("email", formData.contact_email)
-        .single();
-
-      if (existingUser) {
-        setError("A user with this email already exists");
-        setLoading(false);
+      // Check if user is authenticated
+      if (!user) {
+        router.push("/login");
         return;
       }
 
-      // Generate random password for the admin user
-      const tempPassword = Math.random().toString(36).slice(-12) + "A1!";
-      const hashedPassword = await bcrypt.hash(tempPassword, 10);
-      const userId = crypto.randomUUID();
+      console.log("🔍 Registering organization for user:", user.id);
 
-      // Create user account - using service role or handling RLS error
-      const { error: userError } = await supabase
-        .from("users")
+      // Insert organization
+      const { data: orgData, error: orgError } = await supabase
+        .from("organizations")
         .insert({
-          id: userId,
-          full_name: formData.contact_person,
-          email: formData.contact_email,
-          password_hash: hashedPassword,
-          role: "Organization",
-          status: "Pending",
+          name: formData.name,
+          type: formData.type,
           country: formData.country,
-          organization: formData.name,
+          region: formData.region,
+          description: formData.description,
+          registration_number: formData.registration_number || null,
+          website: formData.website || null,
+          contact_person: formData.contact_person,
+          contact_email: formData.contact_email,
+          contact_phone: formData.contact_phone,
+          focus_areas: formData.focus_areas,
+          created_by: user.id,
+          status: "Pending",
           created_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (orgError) {
+        console.error("Organization insert error:", orgError);
+        throw orgError;
+      }
+
+      console.log("✅ Organization created:", orgData.id);
+
+      // Add user as organization member - FIXED: correct table name
+      const { error: memError } = await supabase
+        .from("organization_members")  // Changed from organizations_members to organization_members
+        .insert({
+          organization_id: orgData.id,
+          user_id: user.id,
+          role: "Admin",  // Changed from "Leader" to "Admin" to match your schema
+          joined_at: new Date().toISOString(),
         });
 
-      if (userError) {
-        console.error("User insert error:", userError);
-        
-        // If RLS error, try a different approach - insert without id
-        if (userError.message.includes("row-level security")) {
-          const { data: newUser, error: retryError } = await supabase
-            .from("users")
-            .insert({
-              full_name: formData.contact_person,
-              email: formData.contact_email,
-              password_hash: hashedPassword,
-              role: "Organization",
-              status: "Pending",
-              country: formData.country,
-              organization: formData.name,
-              created_at: new Date().toISOString(),
-            })
-            .select()
-            .single();
-
-          if (retryError) {
-            setError(retryError.message || "Failed to create account");
-            setLoading(false);
-            return;
-          }
-          
-          // Update userId with the auto-generated ID
-          const autoUserId = newUser.id;
-          
-          // Create organization with auto-generated user ID
-          const { error: orgError } = await supabase
-            .from("organizations")
-            .insert({
-              name: formData.name,
-              type: formData.type,
-              country: formData.country,
-              region: formData.region,
-              description: formData.description,
-              registration_number: formData.registration_number || null,
-              website: formData.website || null,
-              contact_person: formData.contact_person,
-              contact_email: formData.contact_email,
-              contact_phone: formData.contact_phone,
-              focus_areas: formData.focus_areas,
-              created_by: autoUserId,
-              status: "Pending",
-              created_at: new Date().toISOString(),
-            });
-
-          if (orgError) {
-            console.error("Organization insert error:", orgError);
-            setError(orgError.message || "Failed to create organization");
-            setLoading(false);
-            return;
-          }
-        } else {
-          setError(userError.message || "Failed to create account");
-          setLoading(false);
-          return;
-        }
-      } else {
-        // Create organization with the provided user ID
-        const { error: orgError } = await supabase
-          .from("organizations")
-          .insert({
-            name: formData.name,
-            type: formData.type,
-            country: formData.country,
-            region: formData.region,
-            description: formData.description,
-            registration_number: formData.registration_number || null,
-            website: formData.website || null,
-            contact_person: formData.contact_person,
-            contact_email: formData.contact_email,
-            contact_phone: formData.contact_phone,
-            focus_areas: formData.focus_areas,
-            created_by: userId,
-            status: "Pending",
-            created_at: new Date().toISOString(),
-          });
-
-        if (orgError) {
-          console.error("Organization insert error:", orgError);
-          setError(orgError.message || "Failed to create organization");
-          setLoading(false);
-          return;
-        }
+      if (memError) {
+        console.error("Member insert error:", memError);
+        // Don't throw - the organization was created, just log the error
+        console.warn("Member creation failed but organization was created");
       }
 
       setSuccess(true);
       setTimeout(() => {
-        router.push("/login");
+        router.push("/organizations");
       }, 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Registration error:", err);
-      setError("An unexpected error occurred. Please try again.");
+      setError(err.message || "Failed to register organization. Please try again.");
     } finally {
       setLoading(false);
     }
   };
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If not authenticated, return null
+  if (!user) {
+    return null;
+  }
 
   if (success) {
     return (
@@ -247,9 +259,9 @@ export default function OrganizationSignupPage() {
             <p className="text-slate-300 mb-4">
               Your organization has been registered and is pending approval.
             </p>
-            <p className="text-slate-400 text-sm mb-6">Redirecting to login...</p>
-            <Link href="/login" className="text-cyan-400 hover:text-cyan-300">
-              Go to Login Now
+            <p className="text-slate-400 text-sm mb-6">Redirecting to dashboard...</p>
+            <Link href="/organizations" className="text-cyan-400 hover:text-cyan-300">
+              Go to Dashboard
             </Link>
           </div>
         </div>
@@ -258,192 +270,211 @@ export default function OrganizationSignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 flex flex-col">
-      <div className="px-6 md:px-8 py-6">
-        <Link href="/signup" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 py-12">
+      <div className="max-w-3xl mx-auto px-4">
+        <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 mb-6 transition-colors">
           <ArrowLeft className="w-4 h-4" />
-          Back to Registration Options
+          Back to Dashboard
         </Link>
-      </div>
 
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="max-w-2xl w-full">
+        <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-8">
           <div className="text-center mb-8">
-            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <div className="bg-gradient-to-r from-cyan-500 to-blue-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Building2 className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 bg-clip-text text-transparent">
-              Organization Registration
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+              Register Your Organization
             </h1>
-            <p className="text-slate-400 mt-2">Register your organization</p>
+            <p className="text-slate-400 mt-2">Join the continental mental health reform movement</p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-8">
-            {error && (
-              <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3">
-                <AlertCircle className="w-5 h-5 text-red-400" />
-                <p className="text-red-400 text-sm">{error}</p>
-              </div>
-            )}
+          {error && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-400" />
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label className="text-slate-400 text-sm block mb-2">Organization Name *</label>
+              <input
+                type="text"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                required
+                className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                placeholder="Enter organization name"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-slate-400 text-sm block mb-2">Organization Name *</label>
+                <label className="text-slate-400 text-sm block mb-2">Organization Type *</label>
+                <select
+                  name="type"
+                  value={formData.type}
+                  onChange={handleChange}
+                  required
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="">Select Type</option>
+                  {organizationTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Registration Number</label>
                 <input
                   type="text"
-                  name="name"
-                  value={formData.name}
+                  name="registration_number"
+                  value={formData.registration_number}
                   onChange={handleChange}
-                  required
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="e.g., RC/12345/2024"
                 />
               </div>
+            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Organization Type *</label>
-                  <select
-                    name="type"
-                    value={formData.type}
-                    onChange={handleChange}
-                    required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                  >
-                    <option value="">Select Type</option>
-                    {organizationTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Registration Number</label>
-                  <input
-                    type="text"
-                    name="registration_number"
-                    value={formData.registration_number}
-                    onChange={handleChange}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Country *</label>
-                  <CountrySelect value={selectedCountryCode} onChange={handleCountrySelect} required />
-                </div>
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Region *</label>
-                  <select
-                    name="region"
-                    value={formData.region}
-                    onChange={handleChange}
-                    required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                  >
-                    <option value="">Select Region</option>
-                    {regions.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Contact Person *</label>
-                  <input
-                    type="text"
-                    name="contact_person"
-                    value={formData.contact_person}
-                    onChange={handleChange}
-                    required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Contact Email *</label>
-                  <input
-                    type="email"
-                    name="contact_email"
-                    value={formData.contact_email}
-                    onChange={handleChange}
-                    required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Contact Phone *</label>
-                  <input
-                    type="tel"
-                    name="contact_phone"
-                    value={formData.contact_phone}
-                    onChange={handleChange}
-                    required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Website</label>
-                  <input
-                    type="url"
-                    name="website"
-                    value={formData.website}
-                    onChange={handleChange}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                  />
-                </div>
-              </div>
-
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-slate-400 text-sm block mb-2">Focus Areas *</label>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  {focusAreasOptions.map(area => (
-                    <label key={area} className="flex items-center gap-2 p-2 bg-slate-700/50 rounded-lg cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.focus_areas.includes(area)}
-                        onChange={() => handleFocusAreaToggle(area)}
-                        className="w-4 h-4 accent-cyan-500"
-                      />
-                      <span className="text-slate-300 text-sm">{area}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-slate-400 text-sm block mb-2">Organization Description *</label>
-                <textarea
-                  name="description"
-                  value={formData.description}
-                  onChange={handleChange}
-                  required
-                  rows={4}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none"
+                <label className="text-slate-400 text-sm block mb-2">Country *</label>
+                <CountrySelect 
+                  value={selectedCountryCode} 
+                  onChange={handleCountrySelect} 
+                  required 
                 />
               </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Region *</label>
+                <select
+                  name="region"
+                  value={formData.region}
+                  onChange={handleChange}
+                  required
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="">Select Region</option>
+                  {regions.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+            </div>
 
-              <div className="flex items-start gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Contact Person *</label>
                 <input
-                  type="checkbox"
-                  name="agree_terms"
-                  checked={formData.agree_terms}
+                  type="text"
+                  name="contact_person"
+                  value={formData.contact_person}
                   onChange={handleChange}
                   required
-                  className="w-5 h-5 mt-0.5 accent-cyan-500"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="Full name of contact person"
                 />
-                <label className="text-slate-400 text-sm">
-                  I agree to the <Link href="/terms" className="text-cyan-400">Terms and Conditions</Link> and{" "}
-                  <Link href="/privacy" className="text-cyan-400">Privacy Policy</Link>
-                </label>
               </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Contact Email *</label>
+                <input
+                  type="email"
+                  name="contact_email"
+                  value={formData.contact_email}
+                  onChange={handleChange}
+                  required
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="contact@organization.org"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Contact Phone *</label>
+                <input
+                  type="tel"
+                  name="contact_phone"
+                  value={formData.contact_phone}
+                  onChange={handleChange}
+                  required
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="+234 800 000 0000"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Website</label>
+                <input
+                  type="url"
+                  name="website"
+                  value={formData.website}
+                  onChange={handleChange}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="https://example.org"
+                />
+              </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 rounded-xl text-white font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Building2 className="w-4 h-4" />}
-                {loading ? "Registering..." : "Register Organization"}
-              </button>
-            </form>
+            <div>
+              <label className="text-slate-400 text-sm block mb-2">Focus Areas *</label>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {focusAreasOptions.map(area => (
+                  <label key={area} className="flex items-center gap-2 p-2 bg-slate-700/50 rounded-lg cursor-pointer hover:bg-slate-700 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formData.focus_areas.includes(area)}
+                      onChange={() => handleFocusAreaToggle(area)}
+                      className="w-4 h-4 accent-cyan-500"
+                    />
+                    <span className="text-slate-300 text-sm">{area}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-slate-400 text-sm block mb-2">Organization Description *</label>
+              <textarea
+                name="description"
+                value={formData.description}
+                onChange={handleChange}
+                required
+                rows={4}
+                className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none focus:outline-none focus:border-cyan-500"
+                placeholder="Describe your organization's mission and work"
+              />
+            </div>
+
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                name="agree_terms"
+                checked={formData.agree_terms}
+                onChange={handleChange}
+                required
+                className="w-5 h-5 mt-0.5 accent-cyan-500"
+              />
+              <label className="text-slate-400 text-sm">
+                I agree to the <Link href="/terms" className="text-cyan-400 hover:text-cyan-300">Terms and Conditions</Link> and{" "}
+                <Link href="/privacy" className="text-cyan-400 hover:text-cyan-300">Privacy Policy</Link>
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 rounded-xl text-white font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Building2 className="w-4 h-4" />}
+              {loading ? "Registering..." : "Register Organization"}
+            </button>
+          </form>
+
+          <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+            <div className="flex items-start gap-3">
+              <Shield className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-white text-sm font-semibold">Pending Approval</p>
+                <p className="text-slate-400 text-xs mt-1">
+                  Your organization will be reviewed by an administrator. You will receive a notification once approved.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

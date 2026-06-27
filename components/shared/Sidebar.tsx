@@ -45,31 +45,73 @@ import {
   Award,
 } from "lucide-react";
 
-// User role types
-type UserRole = "admin" | "policymaker" | "researcher" | "cso" | "coordinator" | "donor" | "mental_health_professional" | "public";
+// User role types - including combined coordinator roles
+type UserRole = 
+  | "Admin" 
+  | "Policymaker" 
+  | "Researcher" 
+  | "CSO" 
+  | "Coordinator" 
+  | "Donor" 
+  | "Mental_Health_Professional" 
+  | "public"
+  | "policymaker_coordinator"
+  | "researcher_coordinator"
+  | "mental_health_coordinator"
+  | "cso_coordinator"
+  | "donor_coordinator"
+  | "admin_coordinator";
 
 // Role display names
 const roleDisplayNames: Record<UserRole, string> = {
-  admin: "System Administrator",
-  policymaker: "Policy Director",
-  researcher: "Research Lead",
-  cso: "CSO Director",
-  coordinator: "Country Coordinator",
-  donor: "Investment Director",
-  mental_health_professional: "Mental Health Professional",
+  Admin: "System Administrator",
+  Policymaker: "Policy Director",
+  Researcher: "Research Lead",
+  CSO: "CSO Director",
+  Coordinator: "Country Coordinator",
+  Donor: "Investment Director",
+  Mental_Health_Professional: "Mental Health Professional",
   public: "Public User",
+  policymaker_coordinator: "Policy Director & Country Coordinator",
+  researcher_coordinator: "Research Lead & Country Coordinator",
+  mental_health_coordinator: "Mental Health Professional & Country Coordinator",
+  cso_coordinator: "CSO Director & Country Coordinator",
+  donor_coordinator: "Investment Director & Country Coordinator",
+  admin_coordinator: "Administrator & Country Coordinator",
 };
 
 // Role badges
 const roleBadges: Record<UserRole, { color: string; bg: string }> = {
-  admin: { color: "text-purple-400", bg: "bg-purple-500/20" },
-  policymaker: { color: "text-cyan-400", bg: "bg-cyan-500/20" },
-  researcher: { color: "text-blue-400", bg: "bg-blue-500/20" },
-  cso: { color: "text-emerald-400", bg: "bg-emerald-500/20" },
-  coordinator: { color: "text-orange-400", bg: "bg-orange-500/20" },
-  donor: { color: "text-yellow-400", bg: "bg-yellow-500/20" },
-  mental_health_professional: { color: "text-pink-400", bg: "bg-pink-500/20" },
+  Admin: { color: "text-purple-400", bg: "bg-purple-500/20" },
+  Policymaker: { color: "text-cyan-400", bg: "bg-cyan-500/20" },
+  Researcher: { color: "text-blue-400", bg: "bg-blue-500/20" },
+  CSO: { color: "text-emerald-400", bg: "bg-emerald-500/20" },
+  Coordinator: { color: "text-orange-400", bg: "bg-orange-500/20" },
+  Donor: { color: "text-yellow-400", bg: "bg-yellow-500/20" },
+  Mental_Health_Professional: { color: "text-pink-400", bg: "bg-pink-500/20" },
   public: { color: "text-slate-400", bg: "bg-slate-500/20" },
+  policymaker_coordinator: { color: "text-cyan-400", bg: "bg-gradient-to-r from-cyan-500/20 to-orange-500/20" },
+  researcher_coordinator: { color: "text-blue-400", bg: "bg-gradient-to-r from-blue-500/20 to-orange-500/20" },
+  mental_health_coordinator: { color: "text-pink-400", bg: "bg-gradient-to-r from-pink-500/20 to-orange-500/20" },
+  cso_coordinator: { color: "text-emerald-400", bg: "bg-gradient-to-r from-emerald-500/20 to-orange-500/20" },
+  donor_coordinator: { color: "text-yellow-400", bg: "bg-gradient-to-r from-yellow-500/20 to-orange-500/20" },
+  admin_coordinator: { color: "text-purple-400", bg: "bg-gradient-to-r from-purple-500/20 to-orange-500/20" },
+};
+
+// Helper function to get base role (removes _coordinator suffix)
+const getBaseRole = (role: string): UserRole => {
+  if (role.endsWith("_coordinator")) {
+    const baseRole = role.replace("_coordinator", "") as UserRole;
+    // Map mental_health to mental_health_professional
+    if (baseRole === "mental_health" as UserRole) return "Mental_Health_Professional";
+    return baseRole;
+  }
+  return role as UserRole;
+};
+
+// Check if role has coordinator access
+const hasCoordinatorAccess = (role: string): boolean => {
+  return role.endsWith("_coordinator") || role === "coordinator" || role === "Admin";
 };
 
 // Navigation groups with role-based access
@@ -77,19 +119,20 @@ const navigationGroups = {
   continental: {
     label: "CONTINENTAL OVERSIGHT",
     icon: Globe,
-    roles: ["admin"],
+    roles: ["Admin", "admin_coordinator"],
     links: [
       { name: "Executive Dashboard", href: "/executive-dashboard", icon: Crown },
       { name: "Admin Panel", href: "/admin", icon: Shield },
       { name: "System Health", href: "/system-health", icon: Activity },
       { name: "Governance Alerts", href: "/governance-alerts", icon: AlertTriangle },
       { name: "Research Library", href: "/research-library", icon: Bot },
+      { name: "Surveys", href: "/admin/surveys", icon: FileText },
     ],
   },
   intelligence: {
     label: "INTELLIGENCE HUB",
     icon: TrendingUp,
-    roles: ["admin", "policymaker", "donor", "researcher", "mental_health_professional"],
+    roles: ["Admin", "admin_coordinator", "Policymaker", "policymaker_coordinator", "donor", "donor_coordinator", "researcher", "researcher_coordinator", "mental_health_professional", "mental_health_coordinator"],
     links: [
       { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
       { name: "Analytics", href: "/analytics", icon: BarChart3 },
@@ -98,14 +141,13 @@ const navigationGroups = {
       { name: "SDG Intelligence", href: "/sdg-intelligence", icon: Target },
       { name: "Reform Intelligence", href: "/reform-intelligence", icon: Lightbulb },
       { name: "Agenda 2063", href: "/agenda2063", icon: Flag },
-      { name: "Donor Intelligence", href: "/donor-intelligence", icon: TrendingUp },
       { name: "AI Policy", href: "/ai-policy", icon: Bot },
     ],
   },
   analysis: {
     label: "COMPARATIVE ANALYSIS",
     icon: GitCompare,
-    roles: ["admin", "policymaker", "researcher", "mental_health_professional"],
+    roles: ["Admin", "admin_coordinator", "Policymaker", "policymaker_coordinator", "researcher", "researcher_coordinator", "mental_health_professional", "mental_health_coordinator"],
     links: [
       { name: "Countries", href: "/countries", icon: Globe },
       { name: "Heatmap", href: "/heatmap", icon: Map },
@@ -116,31 +158,30 @@ const navigationGroups = {
   repository: {
     label: "KNOWLEDGE REPOSITORY",
     icon: FolderGit2,
-    roles: ["admin", "researcher", "cso", "coordinator", "mental_health_professional", "donor"],
+    roles: ["Admin", "admin_coordinator", "researcher", "researcher_coordinator", "cso", "cso_coordinator", "coordinator", "mental_health_professional", "mental_health_coordinator", "donor", "donor_coordinator"],
     links: [
       { name: "Repository", href: "/repository", icon: FolderGit2 },
-      {name: "submissions", href: "/data-collection/submissions", icon: FileCheck },
-      
+      { name: "Submissions", href: "/data-collection/submissions", icon: FileCheck },
+      {name: "Continental Reforms", href: "/continental-reform-dashboard", icon: Globe},
     ],
   },
   collaboration: {
     label: "COLLABORATION",
     icon: Handshake,
-    roles: ["cso", "coordinator", "researcher", "mental_health_professional","donor","admin"],
+    roles: ["cso", "cso_coordinator", "coordinator", "researcher", "researcher_coordinator", "mental_health_professional", "mental_health_coordinator", "donor", "donor_coordinator", "admin", "admin_coordinator"],
     links: [
       { name: "Organizations", href: "/organizations", icon: Building2 },
-      { name: "Research Hub", href: "/research-hub", icon: BookOpen },
-      { name: "Coalitions", href: "/coalitions", icon: Users },
-      { name: "Events & Networking", href: "/events",icon: Handshake },
+      { name: "Research Hub", href: "/repository", icon: BookOpen },
+      { name: "Events & Networking", href: "/events", icon: Handshake },
+      { name: "Advocacy Campaigns", href: "/advocacy-campaigns", icon:Flag },
     ],
   },
   datacollection: {
     label: "DATA COLLECTION",
     icon: Database,
-    roles: ["admin", "researcher", "cso", "coordinator", "mental_health_professional"],
+    roles: ["Admin", "Policymaker", "admin_coordinator", "researcher", "researcher_coordinator", "cso", "cso_coordinator", "coordinator", "mental_health_professional", "mental_health_coordinator"],
     links: [
-      { name: "Submit Report", href: "/data-collection/submit-report", icon: FileText },
-      { name: "Field Reports", href: "/data-collection/field-reports", icon: AlertTriangle },
+      { name: "Submit Report", href: "/data-collection/field-reports", icon: AlertTriangle },
       { name: "Surveys", href: "/data-collection/surveys", icon: ClipboardList },
       { name: "My Submissions", href: "/data-collection/submissions", icon: FolderOpen },
       { name: "Funding Requests", href: "/funding-requests", icon: Target },
@@ -149,13 +190,40 @@ const navigationGroups = {
   investment: {
     label: "INVESTMENT & FUNDING",
     icon: DollarSign,
-    roles: ["admin", "donor"],
+    roles: ["Admin", "admin_coordinator", "donor", "donor_coordinator"],
     links: [
       { name: "Donor Dashboard", href: "/donor", icon: Award },
       { name: "Funding Requests", href: "/funding-requests", icon: Target },
       { name: "Research Sponsorships", href: "/research-sponsorships", icon: Briefcase },
       { name: "Impact Reports", href: "/impact-reports", icon: FileText },
+      { name: "Donor Intelligence", href: "/donor-intelligence", icon: TrendingUp },
       { name: "Investment Portfolio", href: "/investment-portfolio", icon: TrendingUp },
+    ],
+  },
+  coordination: {
+    label: "COUNTRY COORDINATION",
+    icon: Flag,
+    roles: ["coordinator", "policymaker_coordinator", "researcher_coordinator", "mental_health_coordinator", "cso_coordinator", "donor_coordinator", "admin_coordinator", "Admin"],
+    links: [
+      { name: "Coordinator Dashboard", href: "/coordinators", icon: Flag },
+      { name: "Field Reports", href: "/data-collection/field-reports", icon: AlertTriangle },
+      { name: "Local Organizations", href: "/organizations", icon: Building2 },
+    ],
+  },
+  activities: {
+    label: "WORKING GROUPS",
+    icon: Users,
+    roles: ["Admin", "Policymaker", "researcher", "mental_health_professional", "coordinator", "admin_coordinator", "policymaker_coordinator", "donor_coordinator", "researcher_coordinator", "mental_health_coordinator"],
+    links: [
+      { name: "All Working Groups", href: "/working-groups", icon: Users },
+    ],
+  },
+  regionalexecutives: {
+    label: "REGIONAL OVERSIGHT",
+    icon: Globe,
+    roles: ["admin", "regional_executive"],
+    links: [
+      { name: "Regional Dashboard", href: "/regional-executive", icon: Globe },
     ],
   },
 };
@@ -171,10 +239,13 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const [userRole, setUserRole] = useState<UserRole>("public");
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
+  const [userData, setUserData] = useState<any>(null);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([
     "intelligence",
     "analysis",
     "investment",
+    "coordination",
+    "activities",
   ]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -186,31 +257,45 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const checkUserSession = async () => {
     setLoading(true);
     try {
-      // First check localStorage for JWT token (your custom auth)
-      const token = localStorage.getItem("token");
+      // First check localStorage for user profile (from login)
       const userStr = localStorage.getItem("user");
+      
+      console.log("🔍 Sidebar - Checking user session...");
+      console.log("🔍 Sidebar - User string exists:", !!userStr);
 
-      console.log("Sidebar - Token exists:", !!token);
-      console.log("Sidebar - User string exists:", !!userStr);
-      console.log("Sidebar - Pathname:", pathname);
-
-      // Check if user is authenticated via localStorage
-      if (token && userStr) {
-        const userData = JSON.parse(userStr);
-        console.log("Sidebar - User role from localStorage:", userData.role);
-        
-        setIsAuthenticated(true);
-        setUserRole(userData.role.toLowerCase() as UserRole);
-        setUserName(userData.full_name || "User");
-        setUserEmail(userData.email || "");
-        setLoading(false);
-        return;
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          console.log("🔍 Sidebar - User data from localStorage:", userData);
+          
+          // Check if the user data is valid and has a role
+          if (userData && userData.role) {
+            setIsAuthenticated(true);
+            setUserRole(userData.role as UserRole);
+            setUserName(userData.full_name || userData.email?.split("@")[0] || "User");
+            setUserEmail(userData.email || "");
+            setUserData(userData);
+            setLoading(false);
+            console.log("✅ Sidebar - User authenticated via localStorage");
+            return;
+          }
+        } catch (parseError) {
+          console.error("Error parsing user data:", parseError);
+          // If parsing fails, clear invalid data
+          localStorage.removeItem("user");
+        }
       }
 
-      // If no localStorage, check Supabase session (fallback)
-      const { data: { session } } = await supabase.auth.getSession();
+      // If no valid localStorage, check Supabase session
+      console.log("🔍 Sidebar - Checking Supabase session...");
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
+      if (sessionError) {
+        console.error("Session error:", sessionError);
+      }
+
       if (!session) {
+        console.log("❌ Sidebar - No session found");
         setIsAuthenticated(false);
         setUserRole("public");
         
@@ -238,28 +323,48 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       }
       
       // User is authenticated via Supabase
+      console.log("✅ Sidebar - User authenticated via Supabase:", session.user.id);
       setIsAuthenticated(true);
       
+      // Try to get role from user metadata first
       let role = session.user.user_metadata?.role || "public";
       
+      // If role is still public or not set, check the users table
       if (role === "public") {
-        const { data: userData } = await supabase
+        console.log("🔍 Sidebar - Looking up role in users table...");
+        const { data: userData, error: userError } = await supabase
           .from("users")
-          .select("role")
-          .eq("id", session.user.id)
+          .select("role, full_name, email")
+          .eq("auth_user_id", session.user.id)  // Use auth_user_id
           .single();
         
-        if (userData?.role) {
-          role = userData.role.toLowerCase();
+        if (userError) {
+          console.error("Error fetching user data:", userError);
+        } else if (userData) {
+          console.log("🔍 Sidebar - User data from DB:", userData);
+          role = userData.role || "public";
+          setUserData(userData);
+          setUserName(userData.full_name || session.user.email?.split("@")[0] || "User");
+          setUserEmail(userData.email || session.user.email || "");
         }
       }
       
+      // If role is still not set, use default
+      if (!role || role === "public") {
+        role = "public";
+      }
+      
+      console.log("🔍 Sidebar - Final role:", role);
       setUserRole(role as UserRole);
-      setUserName(session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "User");
-      setUserEmail(session.user.email || "");
+      
+      // If we haven't set user name yet, use from session
+      if (!userName) {
+        setUserName(session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "User");
+        setUserEmail(session.user.email || "");
+      }
       
     } catch (error) {
-      console.error("Error checking user session:", error);
+      console.error("❌ Error checking user session:", error);
       setIsAuthenticated(false);
       setUserRole("public");
     } finally {
@@ -268,22 +373,46 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   };
 
   const handleLogout = async () => {
-    // Clear localStorage
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    
-    // Clear cookies if any
-    document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    
-    // Also sign out from Supabase if needed
-    await supabase.auth.signOut();
-    
-    router.push("/login");
+    try {
+      console.log("🚪 Logging out...");
+      
+      // Clear localStorage
+      localStorage.removeItem("user");
+      localStorage.removeItem("session");
+      localStorage.removeItem("token");
+      
+      // Clear cookies if any
+      document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error("Logout error:", error);
+      }
+      
+      // Reset state
+      setIsAuthenticated(false);
+      setUserRole("public");
+      setUserData(null);
+      
+      // Redirect to login
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   // Filter groups based on user role
   const visibleGroups = Object.entries(navigationGroups).filter(
-    ([_, group]) => group.roles.includes(userRole)
+    ([_, group]) => {
+      // Check if user role matches any role in the group
+      return group.roles.some(role => 
+        role.toLowerCase() === userRole.toLowerCase() ||
+        // Check for coordinator variations
+        (userRole.endsWith("_coordinator") && role === userRole.replace("_coordinator", "")) ||
+        (userRole === "Coordinator" && role === "coordinator")
+      );
+    }
   );
 
   const isActiveLink = (href: string) => {
@@ -321,7 +450,11 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   // Get user initials for avatar
   const getUserInitials = () => {
     if (userName) {
-      return userName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+      const parts = userName.split(" ");
+      if (parts.length >= 2) {
+        return parts[0][0] + parts[1][0];
+      }
+      return userName.slice(0, 2).toUpperCase();
     }
     return roleDisplay.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
   };
@@ -375,11 +508,11 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                 {getUserInitials()}
               </span>
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-white text-sm font-semibold truncate">{userName || roleDisplay}</p>
-              <p className={`text-xs ${roleBadge.color}`}>{roleDisplay}</p>
+              <p className={`text-xs ${roleBadge.color} truncate`}>{roleDisplay}</p>
             </div>
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0"></div>
           </div>
         </div>
       )}
@@ -438,14 +571,14 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                           `}
                           title={collapsed ? link.name : undefined}
                         >
-                          <LinkIcon className={`w-5 h-5 ${isActive ? "text-cyan-400" : ""}`} />
+                          <LinkIcon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-cyan-400" : ""}`} />
                           {!collapsed && (
-                            <span className="text-sm font-medium">
+                            <span className="text-sm font-medium truncate">
                               {link.name}
                             </span>
                           )}
                           {isActive && !collapsed && (
-                            <div className="ml-auto w-1 h-6 bg-cyan-400 rounded-full"></div>
+                            <div className="ml-auto w-1 h-6 bg-cyan-400 rounded-full flex-shrink-0"></div>
                           )}
                         </Link>
                       );
@@ -466,7 +599,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             collapsed ? "justify-center" : "justify-start"
           }`}
         >
-          <LogOut className="w-5 h-5" />
+          <LogOut className="w-5 h-5 flex-shrink-0" />
           {!collapsed && <span className="text-sm font-medium">Logout</span>}
         </button>
       </div>
@@ -506,5 +639,3 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
     </aside>
   );
 }
-
-// Add this import at the top

@@ -23,6 +23,15 @@ import {
   TrendingUp,
   Heart,
   Briefcase,
+  Check,
+  XCircle,
+  Edit,
+  Mail,
+  Phone,
+  Building2,
+  FileText,
+  ExternalLink,
+  Copy,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -35,12 +44,29 @@ interface FundingRequest {
   amount_raised: number;
   country: string;
   category: string;
-  status: "Open" | "Funded" | "Closed";
+  status: "Open" | "Funded" | "Closed" | "Pending" | "Approved" | "Rejected";
   created_at: string;
   deadline: string;
+  updated_at?: string;
   researcher: {
     full_name: string;
     organization: string;
+    email: string;
+    phone?: string;
+    bio?: string;
+  };
+}
+
+interface Transaction {
+  id: string;
+  donor_id: string;
+  amount: number;
+  platform_fee: number;
+  researcher_amount: number;
+  status: string;
+  created_at: string;
+  donor: {
+    full_name: string;
     email: string;
   };
 }
@@ -62,10 +88,14 @@ export default function FundingRequestsPage() {
   const [user, setUser] = useState<any>(null);
   const [userRole, setUserRole] = useState<string>("");
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState<FundingRequest | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [submitting, setSubmitting] = useState(false);
+  const [processingAction, setProcessingAction] = useState(false);
   
   const [formData, setFormData] = useState({
     title: "",
@@ -82,7 +112,6 @@ export default function FundingRequestsPage() {
   }, []);
 
   const checkUser = async () => {
-    // Check localStorage for JWT token (custom auth)
     const token = localStorage.getItem("token");
     const userStr = localStorage.getItem("user");
 
@@ -93,9 +122,6 @@ export default function FundingRequestsPage() {
 
     try {
       const userData = JSON.parse(userStr);
-      console.log("Funding Requests - User:", userData);
-      console.log("Funding Requests - User Role:", userData.role);
-      
       setUser(userData);
       setUserRole(userData.role || "");
     } catch (error) {
@@ -118,7 +144,7 @@ export default function FundingRequestsPage() {
           )
         `)
         .order("created_at", { ascending: false });
-  
+
       // For donors, only show Approved/Open requests
       if (userRole === "donor") {
         query = query.in("status", ["Approved", "Open", "Funded"]);
@@ -127,9 +153,13 @@ export default function FundingRequestsPage() {
       else if (userRole === "researcher") {
         query = query.or(`researcher_id.eq.${user?.id},status.in.(Approved,Open,Funded)`);
       }
-  
+      // For admins, show all
+      else if (userRole === "Admin") {
+        // Show all requests for admin
+      }
+
       const { data, error } = await query;
-  
+
       if (error) throw error;
       setRequests(data || []);
     } catch (error) {
@@ -139,20 +169,45 @@ export default function FundingRequestsPage() {
     }
   };
 
-  // Update your handleCreateRequest function in funding-requests/page.tsx
+  const fetchTransactions = async (requestId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select(`
+          *,
+          donor:donor_id (
+            full_name,
+            email
+          )
+        `)
+        .eq("funding_request_id", requestId)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setTransactions(data || []);
+    } catch (error) {
+      console.error("Error fetching transactions:", error);
+    }
+  };
+
+  const handleViewDetails = async (request: FundingRequest) => {
+    setSelectedRequest(request);
+    await fetchTransactions(request.id);
+    setShowDetailModal(true);
+  };
+
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
       alert("Please login to create a funding request");
       return;
     }
-  
-    // Validate required fields
+
     if (!formData.title || !formData.description || !formData.amount_needed || !formData.country || !formData.category || !formData.deadline) {
       alert("Please fill in all required fields");
       return;
     }
-  
+
     setSubmitting(true);
     try {
       // First, verify the user exists in the users table
@@ -161,23 +216,23 @@ export default function FundingRequestsPage() {
         .select("id, role")
         .eq("id", user.id)
         .single();
-  
+
       if (userCheckError) {
         console.error("User check error:", userCheckError);
         alert("Your account is not properly set up. Please contact support.");
         setSubmitting(false);
         return;
       }
-  
+
       console.log("User exists:", userExists);
-  
+
       // Check if user has researcher role
       if (userExists.role !== "Researcher" && userExists.role !== "Admin") {
         alert("Only researchers can create funding requests");
         setSubmitting(false);
         return;
       }
-  
+
       const requestData = {
         researcher_id: user.id,
         title: formData.title,
@@ -186,21 +241,20 @@ export default function FundingRequestsPage() {
         amount_raised: 0,
         country: formData.country,
         category: formData.category,
-        status: "Pending", // Requires admin approval first
+        status: "Pending",
         deadline: formData.deadline,
       };
-  
+
       console.log("Inserting funding request:", requestData);
-  
+
       const { data, error } = await supabase
         .from("funding_requests")
         .insert(requestData)
         .select();
-  
+
       if (error) {
         console.error("Supabase error:", error);
         
-        // Handle specific error cases
         if (error.code === "23503") {
           alert("Foreign key violation: Your user ID is not valid. Please contact support.");
         } else if (error.code === "23505") {
@@ -211,9 +265,9 @@ export default function FundingRequestsPage() {
         setSubmitting(false);
         return;
       }
-  
+
       console.log("Funding request created:", data);
-  
+
       setShowCreateModal(false);
       setFormData({
         title: "",
@@ -230,6 +284,52 @@ export default function FundingRequestsPage() {
       alert("An unexpected error occurred. Please try again.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleAdminAction = async (requestId: string, action: "approve" | "reject" | "cancel") => {
+    if (!confirm(`Are you sure you want to ${action} this funding request?`)) return;
+
+    setProcessingAction(true);
+    try {
+      let status = "";
+      let message = "";
+
+      switch (action) {
+        case "approve":
+          status = "Approved";
+          message = "Funding request approved successfully!";
+          break;
+        case "reject":
+          status = "Rejected";
+          message = "Funding request rejected.";
+          break;
+        case "cancel":
+          status = "Closed";
+          message = "Funding request cancelled.";
+          break;
+        default:
+          throw new Error("Invalid action");
+      }
+
+      const { error } = await supabase
+        .from("funding_requests")
+        .update({ 
+          status,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", requestId);
+
+      if (error) throw error;
+
+      alert(message);
+      setShowDetailModal(false);
+      fetchRequests();
+    } catch (error) {
+      console.error(`Error ${action}ing request:`, error);
+      alert(`Failed to ${action} request. Please try again.`);
+    } finally {
+      setProcessingAction(false);
     }
   };
 
@@ -253,12 +353,10 @@ export default function FundingRequestsPage() {
       return;
     }
 
-    // Calculate platform fee (5%)
     const platformFee = amountNum * 0.05;
     const researcherAmount = amountNum - platformFee;
 
     try {
-      // Create transaction
       const { error: txError } = await supabase.from("transactions").insert({
         donor_id: user.id,
         funding_request_id: requestId,
@@ -270,7 +368,6 @@ export default function FundingRequestsPage() {
 
       if (txError) throw txError;
 
-      // Update funding request
       const { data: request } = await supabase
         .from("funding_requests")
         .select("amount_raised")
@@ -290,6 +387,9 @@ export default function FundingRequestsPage() {
 
       alert(`Successfully invested $${amountNum.toLocaleString()}! Platform fee: $${platformFee.toFixed(2)}`);
       fetchRequests();
+      if (showDetailModal) {
+        await fetchTransactions(requestId);
+      }
     } catch (error) {
       console.error("Error processing investment:", error);
       alert("Failed to process investment");
@@ -306,20 +406,16 @@ export default function FundingRequestsPage() {
 
   const stats = {
     total: requests.length,
-    open: requests.filter(r => r.status === "Open").length,
+    open: requests.filter(r => r.status === "Open" || r.status === "Approved").length,
     funded: requests.filter(r => r.status === "Funded").length,
+    pending: requests.filter(r => r.status === "Pending").length,
     totalAmount: requests.reduce((sum, r) => sum + r.amount_needed, 0),
     raisedAmount: requests.reduce((sum, r) => sum + (r.amount_raised || 0), 0),
   };
 
-  // Determine what actions to show based on user role
   const canCreateRequest = userRole === "Researcher" || userRole === "Admin";
   const canFundProject = userRole === "Donor" || userRole === "Admin";
-  const canViewDetails = userRole === "Admin" || userRole === "Researcher";
-
-  console.log("User Role:", userRole);
-  console.log("Can Create Request:", canCreateRequest);
-  console.log("Can Fund Project:", canFundProject);
+  const isAdmin = userRole === "Admin";
 
   if (loading) {
     return (
@@ -345,6 +441,13 @@ export default function FundingRequestsPage() {
                     RESEARCH FUNDING MARKETPLACE
                   </span>
                 </div>
+                {isAdmin && (
+                  <div className="px-3 py-1 bg-purple-500/20 rounded-full border border-purple-500/30">
+                    <span className="text-purple-300 text-xs font-mono tracking-wider">
+                      ADMIN MODE
+                    </span>
+                  </div>
+                )}
               </div>
               <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
                 Funding Requests
@@ -378,18 +481,22 @@ export default function FundingRequestsPage() {
 
       <div className="px-4 md:px-8 py-6">
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <p className="text-slate-400 text-xs">Total Requests</p>
             <p className="text-2xl font-bold text-white">{stats.total}</p>
           </div>
           <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20">
-            <p className="text-emerald-400 text-xs">Open Requests</p>
+            <p className="text-emerald-400 text-xs">Open</p>
             <p className="text-2xl font-bold text-emerald-400">{stats.open}</p>
           </div>
           <div className="bg-cyan-500/10 rounded-xl p-4 border border-cyan-500/20">
             <p className="text-cyan-400 text-xs">Funded</p>
             <p className="text-2xl font-bold text-cyan-400">{stats.funded}</p>
+          </div>
+          <div className="bg-yellow-500/10 rounded-xl p-4 border border-yellow-500/20">
+            <p className="text-yellow-400 text-xs">Pending</p>
+            <p className="text-2xl font-bold text-yellow-400">{stats.pending}</p>
           </div>
           <div className="bg-purple-500/10 rounded-xl p-4 border border-purple-500/20">
             <p className="text-purple-400 text-xs">Total Value</p>
@@ -429,25 +536,30 @@ export default function FundingRequestsPage() {
             className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white"
           >
             <option value="all">All Status</option>
+            <option value="Pending">Pending</option>
+            <option value="Approved">Approved</option>
             <option value="Open">Open</option>
             <option value="Funded">Funded</option>
             <option value="Closed">Closed</option>
+            <option value="Rejected">Rejected</option>
           </select>
         </div>
 
         {/* Funding Requests Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {filteredRequests.map((request) => {
-            const progress = (request.amount_raised / request.amount_needed) * 100;
+            const progress = request.amount_needed > 0 ? (request.amount_raised / request.amount_needed) * 100 : 0;
             
             return (
               <div key={request.id} className="bg-slate-800/50 rounded-2xl border border-slate-700 hover:border-cyan-500/30 transition-all overflow-hidden">
                 <div className="p-6">
                   <div className="flex justify-between items-start mb-3">
                     <span className={`px-2 py-1 rounded-full text-xs ${
-                      request.status === "Open" ? "bg-emerald-500/20 text-emerald-400" :
+                      request.status === "Open" || request.status === "Approved" ? "bg-emerald-500/20 text-emerald-400" :
                       request.status === "Funded" ? "bg-cyan-500/20 text-cyan-400" :
-                      "bg-red-500/20 text-red-400"
+                      request.status === "Pending" ? "bg-yellow-500/20 text-yellow-400" :
+                      request.status === "Rejected" ? "bg-red-500/20 text-red-400" :
+                      "bg-slate-500/20 text-slate-400"
                     }`}>
                       {request.status}
                     </span>
@@ -481,8 +593,8 @@ export default function FundingRequestsPage() {
                       <div className="bg-cyan-500 h-2 rounded-full" style={{ width: `${progress}%` }}></div>
                     </div>
                     <div className="flex justify-between mt-1 text-xs">
-                      <span className="text-slate-500">Raised: ${(request.amount_raised / 1000).toFixed(0)}K</span>
-                      <span className="text-slate-500">Goal: ${(request.amount_needed / 1000).toFixed(0)}K</span>
+                      <span className="text-slate-500">Raised: ${(request.amount_raised / 1000).toFixed(1)}K</span>
+                      <span className="text-slate-500">Goal: ${(request.amount_needed / 1000).toFixed(1)}K</span>
                     </div>
                   </div>
 
@@ -497,19 +609,23 @@ export default function FundingRequestsPage() {
                         <p className="text-slate-500 text-xs">{request.researcher?.organization}</p>
                       </div>
                     </div>
-                    {canFundProject && request.status === "Open" && (
+                    <div className="flex gap-2">
+                      {canFundProject && (request.status === "Open" || request.status === "Approved") && (
+                        <button
+                          onClick={() => handleFundRequest(request.id, request.amount_needed - request.amount_raised)}
+                          className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors"
+                        >
+                          Fund
+                        </button>
+                      )}
                       <button
-                        onClick={() => handleFundRequest(request.id, request.amount_needed - request.amount_raised)}
-                        className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors"
+                        onClick={() => handleViewDetails(request)}
+                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm transition-colors flex items-center gap-1"
                       >
-                        Fund Project
+                        <Eye className="w-4 h-4" />
+                        Details
                       </button>
-                    )}
-                    {canViewDetails && (
-                      <button className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm transition-colors">
-                        View Details
-                      </button>
-                    )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -526,6 +642,206 @@ export default function FundingRequestsPage() {
           </div>
         )}
       </div>
+
+      {/* Detail Modal */}
+      {showDetailModal && selectedRequest && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={() => setShowDetailModal(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-700 sticky top-0 bg-slate-800 z-10">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">{selectedRequest.title}</h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`px-2 py-1 rounded-full text-xs ${
+                      selectedRequest.status === "Open" || selectedRequest.status === "Approved" ? "bg-emerald-500/20 text-emerald-400" :
+                      selectedRequest.status === "Funded" ? "bg-cyan-500/20 text-cyan-400" :
+                      selectedRequest.status === "Pending" ? "bg-yellow-500/20 text-yellow-400" :
+                      selectedRequest.status === "Rejected" ? "bg-red-500/20 text-red-400" :
+                      "bg-slate-500/20 text-slate-400"
+                    }`}>
+                      {selectedRequest.status}
+                    </span>
+                    <span className="text-slate-500 text-sm flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      Deadline: {new Date(selectedRequest.deadline).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+                <button onClick={() => setShowDetailModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Admin Actions */}
+              {isAdmin && selectedRequest.status === "Pending" && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+                  <h3 className="text-yellow-400 font-semibold mb-3 flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5" />
+                    Admin Review Required
+                  </h3>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleAdminAction(selectedRequest.id, "approve")}
+                      disabled={processingAction}
+                      className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-xl text-white transition-colors flex items-center gap-2"
+                    >
+                      <Check className="w-4 h-4" />
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => handleAdminAction(selectedRequest.id, "reject")}
+                      disabled={processingAction}
+                      className="px-6 py-2 bg-red-600 hover:bg-red-700 rounded-xl text-white transition-colors flex items-center gap-2"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => handleAdminAction(selectedRequest.id, "cancel")}
+                      disabled={processingAction}
+                      className="px-6 py-2 bg-slate-600 hover:bg-slate-700 rounded-xl text-white transition-colors flex items-center gap-2"
+                    >
+                      <X className="w-4 h-4" />
+                      Cancel
+                    </button>
+                  </div>
+                  {processingAction && (
+                    <div className="mt-2 text-yellow-400 text-sm flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Processing...
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Request Details Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-slate-400 text-sm font-medium mb-1">Description</h3>
+                    <p className="text-white">{selectedRequest.description}</p>
+                  </div>
+                  <div>
+                    <h3 className="text-slate-400 text-sm font-medium mb-1">Category</h3>
+                    <p className="text-white">{selectedRequest.category}</p>
+                  </div>
+                  <div>
+                    <h3 className="text-slate-400 text-sm font-medium mb-1">Country</h3>
+                    <p className="text-white">{selectedRequest.country}</p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-slate-400 text-sm font-medium mb-1">Funding Goal</h3>
+                    <p className="text-2xl font-bold text-cyan-400">${selectedRequest.amount_needed.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <h3 className="text-slate-400 text-sm font-medium mb-1">Amount Raised</h3>
+                    <p className="text-2xl font-bold text-emerald-400">${selectedRequest.amount_raised.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <h3 className="text-slate-400 text-sm font-medium mb-1">Progress</h3>
+                    <div className="w-full bg-slate-700 rounded-full h-3">
+                      <div 
+                        className="bg-cyan-500 h-3 rounded-full" 
+                        style={{ width: `${selectedRequest.amount_needed > 0 ? (selectedRequest.amount_raised / selectedRequest.amount_needed) * 100 : 0}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-slate-400 text-sm mt-1">
+                      {selectedRequest.amount_needed > 0 ? ((selectedRequest.amount_raised / selectedRequest.amount_needed) * 100).toFixed(1) : 0}% funded
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Researcher Info */}
+              <div className="bg-slate-700/30 rounded-xl p-4">
+                <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                  <User className="w-4 h-4 text-cyan-400" />
+                  Researcher Information
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-slate-400 text-sm">Name</p>
+                    <p className="text-white">{selectedRequest.researcher?.full_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Organization</p>
+                    <p className="text-white">{selectedRequest.researcher?.organization}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Email</p>
+                    <p className="text-white">{selectedRequest.researcher?.email}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-sm">Submitted</p>
+                    <p className="text-white">{new Date(selectedRequest.created_at).toLocaleDateString()}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Transactions */}
+              {transactions.length > 0 && (
+                <div className="bg-slate-700/30 rounded-xl p-4">
+                  <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-emerald-400" />
+                    Funding Transactions ({transactions.length})
+                  </h3>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {transactions.map((tx) => (
+                      <div key={tx.id} className="bg-slate-800/50 rounded-lg p-3 flex justify-between items-center">
+                        <div>
+                          <p className="text-white text-sm">{tx.donor?.full_name}</p>
+                          <p className="text-slate-400 text-xs">{new Date(tx.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-emerald-400 font-bold">${tx.amount.toLocaleString()}</p>
+                          <p className="text-slate-500 text-xs">Fee: ${tx.platform_fee.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Actions */}
+              <div className="flex flex-wrap gap-3 pt-4 border-t border-slate-700">
+                {canFundProject && (selectedRequest.status === "Open" || selectedRequest.status === "Approved") && (
+                  <button
+                    onClick={() => handleFundRequest(selectedRequest.id, selectedRequest.amount_needed - selectedRequest.amount_raised)}
+                    className="px-6 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors flex items-center gap-2"
+                  >
+                    <DollarSign className="w-4 h-4" />
+                    Fund This Project
+                  </button>
+                )}
+                {isAdmin && selectedRequest.status !== "Pending" && (
+                  <>
+                    <button
+                      onClick={() => handleAdminAction(selectedRequest.id, "cancel")}
+                      className="px-6 py-2 bg-red-600 hover:bg-red-700 rounded-xl text-white transition-colors flex items-center gap-2"
+                    >
+                      <X className="w-4 h-4" />
+                      Cancel Request
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(window.location.origin + `/funding-requests/${selectedRequest.id}`);
+                    alert("Link copied to clipboard!");
+                  }}
+                  className="px-6 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition-colors flex items-center gap-2"
+                >
+                  <Copy className="w-4 h-4" />
+                  Share Link
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Funding Request Modal */}
       {showCreateModal && (

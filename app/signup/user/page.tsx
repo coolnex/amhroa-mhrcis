@@ -5,7 +5,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { hashPassword } from "@/lib/password-utils";
 import {
   User,
   Mail,
@@ -93,53 +92,56 @@ export default function IndividualSignupPage() {
     }
 
     try {
-      // Check if user already exists
-      const { data: existingUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("email", formData.email)
-        .single();
+      console.log("🔐 Attempting to sign up user:", formData.email);
 
-      if (existingUser) {
-        setError("User with this email already exists");
+      // Create user in Supabase Auth - the trigger will handle creating the user in the users table
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.full_name,
+            role: formData.role,
+            country: formData.country || "",
+            organization: formData.organization || "",
+          },
+        },
+      });
+
+      if (signUpError) {
+        console.error("❌ Sign up error:", signUpError);
+        
+        // Handle specific error cases
+        if (signUpError.message.includes("User already registered")) {
+          setError("This email is already registered. Please try logging in instead.");
+        } else {
+          setError(signUpError.message || "Failed to create account. Please try again.");
+        }
         setLoading(false);
         return;
       }
 
-      // Hash password using the shared utility
-      const hashedPassword = await hashPassword(formData.password);
-      
-      console.log("Password hashed successfully, length:", hashedPassword.length);
-
-      const userId = crypto.randomUUID();
-
-      const { error: insertError } = await supabase
-        .from("users")
-        .insert({
-          id: userId,
-          full_name: formData.full_name,
-          email: formData.email.toLowerCase(),
-          password_hash: hashedPassword,
-          role: formData.role,
-          status: "Pending",
-          country: formData.country || null,
-          organization: formData.organization || null,
-          created_at: new Date().toISOString(),
-        });
-
-      if (insertError) {
-        console.error("Insert error:", insertError);
-        setError(insertError.message || "Failed to create account");
+      if (!authData.user) {
+        setError("Failed to create user. Please try again.");
         setLoading(false);
         return;
       }
+
+      console.log("✅ Auth user created successfully:", authData.user.id);
+      console.log("📝 The database trigger 'handle_new_user' will automatically create the user profile.");
+
+      // Wait a moment for the trigger to execute
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Sign out the user immediately since they need approval
+      await supabase.auth.signOut();
 
       setSuccess(true);
       setTimeout(() => {
         router.push("/login");
       }, 3000);
     } catch (err) {
-      console.error("Signup error:", err);
+      console.error("❌ Signup error:", err);
       setError("An unexpected error occurred. Please try again.");
     } finally {
       setLoading(false);
@@ -158,6 +160,11 @@ export default function IndividualSignupPage() {
             <p className="text-slate-300 mb-4">
               Your account has been created and is pending approval. You will receive an email once approved.
             </p>
+            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 mb-6">
+              <p className="text-yellow-300 text-sm">
+                ⚠️ You will not be able to log in until your account is approved by an administrator.
+              </p>
+            </div>
             <p className="text-slate-400 text-sm mb-6">Redirecting to login...</p>
             <Link href="/login" className="text-cyan-400 hover:text-cyan-300">
               Go to Login Now
@@ -191,9 +198,12 @@ export default function IndividualSignupPage() {
 
           <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-8">
             {error && (
-              <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3">
-                <AlertCircle className="w-5 h-5 text-red-400" />
-                <p className="text-red-400 text-sm">{error}</p>
+              <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-red-400 text-sm font-medium">Error</p>
+                  <p className="text-red-300 text-sm">{error}</p>
+                </div>
               </div>
             )}
 
@@ -206,7 +216,7 @@ export default function IndividualSignupPage() {
                   value={formData.full_name}
                   onChange={handleChange}
                   required
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                   placeholder="Enter your full name"
                 />
               </div>
@@ -219,7 +229,7 @@ export default function IndividualSignupPage() {
                   value={formData.email}
                   onChange={handleChange}
                   required
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                   placeholder="you@example.com"
                 />
               </div>
@@ -233,7 +243,7 @@ export default function IndividualSignupPage() {
                     value={formData.password}
                     onChange={handleChange}
                     required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white pr-10"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white pr-10 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                     placeholder="Create a password"
                   />
                   <button
@@ -256,7 +266,7 @@ export default function IndividualSignupPage() {
                     value={formData.confirm_password}
                     onChange={handleChange}
                     required
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white pr-10"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white pr-10 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                     placeholder="Confirm your password"
                   />
                   <button
@@ -276,7 +286,7 @@ export default function IndividualSignupPage() {
                   value={formData.role}
                   onChange={handleChange}
                   required
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                 >
                   {userRoles.map(role => (
                     <option key={role.value} value={role.value}>{role.label}</option>
@@ -293,7 +303,7 @@ export default function IndividualSignupPage() {
                   name="country"
                   value={formData.country}
                   onChange={handleChange}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                 >
                   <option value="">Select your country</option>
                   {countries.map(c => (
@@ -309,7 +319,7 @@ export default function IndividualSignupPage() {
                   name="organization"
                   value={formData.organization}
                   onChange={handleChange}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                   placeholder="Your organization name"
                 />
               </div>
@@ -321,9 +331,9 @@ export default function IndividualSignupPage() {
                   checked={formData.agree_terms}
                   onChange={handleChange}
                   required
-                  className="w-5 h-5 mt-0.5 accent-cyan-500"
+                  className="w-5 h-5 mt-0.5 accent-cyan-500 cursor-pointer"
                 />
-                <label className="text-slate-400 text-sm">
+                <label className="text-slate-400 text-sm cursor-pointer">
                   I agree to the{" "}
                   <Link href="/terms" className="text-cyan-400 hover:text-cyan-300">
                     Terms and Conditions
