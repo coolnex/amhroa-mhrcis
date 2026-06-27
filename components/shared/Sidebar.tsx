@@ -43,6 +43,7 @@ import {
   Mail,
   DollarSign,
   Award,
+  BriefcaseBusiness,
 } from "lucide-react";
 
 // User role types - including combined coordinator roles
@@ -171,6 +172,7 @@ const navigationGroups = {
     roles: ["cso", "cso_coordinator", "coordinator", "researcher", "researcher_coordinator", "mental_health_professional", "mental_health_coordinator", "donor", "donor_coordinator", "admin", "admin_coordinator"],
     links: [
       { name: "Organizations", href: "/organizations", icon: Building2 },
+      { name: "Collaboraton Hub", href: "/organizations/collaboration-hub", icon: BriefcaseBusiness},
       { name: "Research Hub", href: "/repository", icon: BookOpen },
       { name: "Events & Networking", href: "/events", icon: Handshake },
       { name: "Advocacy Campaigns", href: "/advocacy-campaigns", icon:Flag },
