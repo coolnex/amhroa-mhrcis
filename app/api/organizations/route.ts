@@ -1,6 +1,6 @@
 // app/api/organizations/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { supabase } from "@/lib/supabase";
 
 export async function GET(req: Request) {
   try {
@@ -9,7 +9,7 @@ export async function GET(req: Request) {
     const country = searchParams.get("country");
     const type = searchParams.get("type");
 
-    let query = supabaseAdmin
+    let query = supabase
       .from("organizations")
       .select(`
         *,
@@ -102,7 +102,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from("organizations")
       .insert({
         name: name,
@@ -171,7 +171,7 @@ export async function PATCH(req: Request) {
       updateData.approval_notes = approval_notes;
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from("organizations")
       .update(updateData)
       .eq("id", id)
@@ -211,7 +211,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await supabase
       .from("organizations")
       .delete()
       .eq("id", id);
