@@ -22,6 +22,9 @@ import {
   TrendingUp,
   LogOut,
   ArrowLeft,
+  Filter,
+  Globe,
+  UserCheck,
 } from "lucide-react";
 
 interface Survey {
@@ -32,6 +35,13 @@ interface Survey {
   status: "Active" | "Draft" | "Archived";
   created_at: string;
   response_count?: number;
+  metadata?: {
+    targetAudience?: string;
+    targetCountries?: string[];
+    targetRoles?: string[];
+    startDate?: string;
+    endDate?: string;
+  };
 }
 
 const categoryColors: Record<string, string> = {
@@ -54,6 +64,7 @@ export default function SurveysDashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [completedSurveys, setCompletedSurveys] = useState<Set<string>>(new Set());
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [showAllSurveys, setShowAllSurveys] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -70,7 +81,6 @@ export default function SurveysDashboardPage() {
     try {
       console.log("🔐 Surveys Dashboard - Verifying security clearance...");
 
-      // 1. First check localStorage for user profile
       const userStr = localStorage.getItem("user");
       
       if (userStr) {
@@ -87,7 +97,6 @@ export default function SurveysDashboardPage() {
         }
       }
 
-      // 2. Fetch active authentication token session from Supabase
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError || !session?.user) {
@@ -96,7 +105,6 @@ export default function SurveysDashboardPage() {
         return;
       }
 
-      // 3. Fetch structural profile record from public.users table
       const { data: userData, error: dbError } = await supabase
         .from("users")
         .select("id, full_name, email, role, status, country")
@@ -109,14 +117,12 @@ export default function SurveysDashboardPage() {
         return;
       }
 
-      // 4. Approval Constraint Guard Rule
       if (userData.status !== "Approved") {
         console.log("Account is not yet marked as Approved.");
         router.push("/login?message=Account pending approval");
         return;
       }
 
-      // 5. Cache user data in localStorage
       localStorage.setItem("user", JSON.stringify(userData));
       setUser(userData);
       setIsAuthorized(true);
@@ -132,8 +138,6 @@ export default function SurveysDashboardPage() {
   const logout = async () => {
     try {
       localStorage.removeItem("user");
-      localStorage.removeItem("session");
-      localStorage.removeItem("token");
       await supabase.auth.signOut();
       router.push("/login");
     } catch (error) {
@@ -160,7 +164,6 @@ export default function SurveysDashboardPage() {
   const fetchSurveys = async () => {
     setLoading(true);
     try {
-      // Fetch active surveys only
       const { data, error } = await supabase
         .from("surveys")
         .select("*")
@@ -169,7 +172,6 @@ export default function SurveysDashboardPage() {
 
       if (error) throw error;
 
-      // Get response counts for each survey
       if (data && data.length > 0) {
         const surveysWithCounts = await Promise.all(
           data.map(async (survey) => {
@@ -178,10 +180,10 @@ export default function SurveysDashboardPage() {
               .select("*", { count: "exact", head: true })
               .eq("survey_id", survey.id);
 
-            if (countError) {
-              return { ...survey, response_count: 0 };
-            }
-            return { ...survey, response_count: count || 0 };
+            return {
+              ...survey,
+              response_count: countError ? 0 : count || 0
+            };
           })
         );
         setSurveys(surveysWithCounts);
@@ -196,14 +198,42 @@ export default function SurveysDashboardPage() {
     }
   };
 
+  // Filter surveys based on user's country and role
   const filteredSurveys = useMemo(() => {
-    return surveys.filter(survey => {
+    let filtered = surveys.filter(survey => {
       const matchesSearch = survey.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            survey.description.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = categoryFilter === "all" || survey.category === categoryFilter;
       return matchesSearch && matchesCategory;
     });
-  }, [surveys, searchTerm, categoryFilter]);
+
+    // If not showing all surveys, filter by user's country and role
+    if (!showAllSurveys && user) {
+      filtered = filtered.filter(survey => {
+        const metadata = survey.metadata || {};
+        const targetAudience = metadata.targetAudience || "all";
+        const targetCountries = metadata.targetCountries || [];
+        const targetRoles = metadata.targetRoles || [];
+        
+        // Check if survey is for everyone
+        if (targetAudience === "all") return true;
+        
+        // Check if user's role matches
+        if (targetRoles.length > 0 && user.role && !targetRoles.includes(user.role)) {
+          return false;
+        }
+        
+        // Check if user's country matches
+        if (targetCountries.length > 0 && user.country && !targetCountries.includes(user.country)) {
+          return false;
+        }
+        
+        return true;
+      });
+    }
+
+    return filtered;
+  }, [surveys, searchTerm, categoryFilter, user, showAllSurveys]);
 
   const categories = useMemo(() => {
     return ["all", ...new Set(surveys.map(s => s.category).filter(Boolean))];
@@ -211,12 +241,12 @@ export default function SurveysDashboardPage() {
 
   const stats = {
     total: surveys.length,
+    relevant: filteredSurveys.length,
     categories: new Set(surveys.map(s => s.category)).size,
     totalResponses: surveys.reduce((acc, s) => acc + (s.response_count || 0), 0),
     completionRate: user ? Math.round((completedSurveys.size / (surveys.length || 1)) * 100) : 0,
   };
 
-  // Show loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
@@ -228,7 +258,6 @@ export default function SurveysDashboardPage() {
     );
   }
 
-  // If not authorized, return null
   if (!isAuthorized || !user) {
     return null;
   }
@@ -260,6 +289,20 @@ export default function SurveysDashboardPage() {
                     DATA COLLECTION & RESEARCH
                   </span>
                 </div>
+                <div className="flex items-center gap-2">
+                  {user && (
+                    <div className="flex items-center gap-1 px-2 py-1 bg-slate-700/50 rounded-full">
+                      <Globe className="w-3 h-3 text-slate-400" />
+                      <span className="text-slate-300 text-xs">{user.country || "All Countries"}</span>
+                    </div>
+                  )}
+                  {user && user.role && (
+                    <div className="flex items-center gap-1 px-2 py-1 bg-slate-700/50 rounded-full">
+                      <UserCheck className="w-3 h-3 text-slate-400" />
+                      <span className="text-slate-300 text-xs">{user.role}</span>
+                    </div>
+                  )}
+                </div>
                 {user && stats.completionRate > 0 && (
                   <div className="flex items-center gap-1 px-2 py-1 bg-emerald-500/20 rounded-full">
                     <CheckCircle className="w-3 h-3 text-emerald-400" />
@@ -271,11 +314,23 @@ export default function SurveysDashboardPage() {
                 Survey Dashboard
               </h1>
               <p className="text-slate-300 text-base md:text-lg mt-3 max-w-2xl">
-                Access and participate in continental research surveys, community assessments, and monitoring tools.
+                {showAllSurveys 
+                  ? "Viewing all available surveys across all countries and roles"
+                  : `Viewing surveys relevant to ${user.country || "your country"} and ${user.role || "your role"}`
+                }
               </p>
             </div>
 
             <div className="flex gap-2">
+              <button
+                onClick={() => setShowAllSurveys(!showAllSurveys)}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 text-white transition-colors"
+              >
+                <Filter className="w-4 h-4" />
+                <span className="text-sm hidden sm:inline">
+                  {showAllSurveys ? "Show Relevant" : "Show All"}
+                </span>
+              </button>
               <button
                 onClick={fetchSurveys}
                 className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
@@ -294,9 +349,13 @@ export default function SurveysDashboardPage() {
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <div className="flex items-center gap-2 mb-2">
               <FileText className="w-4 h-4 text-cyan-400" />
-              <p className="text-slate-400 text-xs">Total Surveys</p>
+              <p className="text-slate-400 text-xs">
+                {showAllSurveys ? "Total Surveys" : "Relevant Surveys"}
+              </p>
             </div>
-            <p className="text-2xl font-bold text-white">{stats.total}</p>
+            <p className="text-2xl font-bold text-white">
+              {showAllSurveys ? stats.total : stats.relevant}
+            </p>
           </div>
           <div className="bg-purple-500/10 rounded-xl p-4 border border-purple-500/20">
             <div className="flex items-center gap-2 mb-2">
@@ -320,6 +379,35 @@ export default function SurveysDashboardPage() {
             <p className="text-2xl font-bold text-cyan-400">{stats.completionRate}%</p>
           </div>
         </div>
+
+        {/* Info Banner */}
+        {!showAllSurveys && stats.relevant < stats.total && (
+          <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-xl p-4 mb-6">
+            <p className="text-cyan-400 text-sm">
+              Showing {stats.relevant} surveys relevant to your country and role. 
+              <button 
+                onClick={() => setShowAllSurveys(true)}
+                className="ml-2 text-white underline hover:text-cyan-300"
+              >
+                View all {stats.total} surveys
+              </button>
+            </p>
+          </div>
+        )}
+
+        {showAllSurveys && (
+          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 mb-6">
+            <p className="text-yellow-400 text-sm">
+              Showing all {stats.total} surveys across all countries and roles.
+              <button 
+                onClick={() => setShowAllSurveys(false)}
+                className="ml-2 text-white underline hover:text-yellow-300"
+              >
+                Show only relevant surveys
+              </button>
+            </p>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex flex-wrap gap-4 mb-8">
@@ -354,7 +442,20 @@ export default function SurveysDashboardPage() {
           <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-12 text-center">
             <FileText className="w-16 h-16 text-slate-600 mx-auto mb-4" />
             <p className="text-slate-400 text-lg">No surveys found</p>
-            <p className="text-slate-500 text-sm mt-2">Try adjusting your search or filters</p>
+            <p className="text-slate-500 text-sm mt-2">
+              {showAllSurveys 
+                ? "There are no active surveys available at the moment." 
+                : `There are no surveys specifically for ${user.country || "your country"} and ${user.role || "your role"}. Try showing all surveys.`
+              }
+            </p>
+            {!showAllSurveys && (
+              <button
+                onClick={() => setShowAllSurveys(true)}
+                className="mt-4 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors"
+              >
+                View All Surveys
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

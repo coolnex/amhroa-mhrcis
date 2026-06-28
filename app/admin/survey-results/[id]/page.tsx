@@ -16,6 +16,7 @@ import {
   Clock,
   CheckCircle,
   AlertCircle,
+  LogOut,
   Loader2,
   TrendingUp,
   Filter,
@@ -104,6 +105,7 @@ export default function SurveyResultsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDate, setFilterDate] = useState<string>("");
   const [debugInfo, setDebugInfo] = useState<any>({});
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
     if (!surveyId) return;
@@ -113,29 +115,83 @@ export default function SurveyResultsPage() {
 
   const checkAuth = async () => {
     try {
-      const userStr = localStorage.getItem("user");
-      const token = localStorage.getItem("token");
+      console.log("🔐 Survey Results - Verifying security clearance...");
 
-      if (!token || !userStr) {
+      // 1. First check localStorage for user profile
+      const userStr = localStorage.getItem("user");
+      
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          if (userData.role === "Admin" && userData.status === "Approved") {
+            setUser(userData);
+            setIsAuthorized(true);
+            await Promise.all([fetchSurvey(), fetchResponses()]);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          localStorage.removeItem("user");
+        }
+      }
+
+      // 2. Fetch active authentication token session from Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.log("No active session found, routing back to login page.");
         router.push("/login");
         return;
       }
 
-      const userData = JSON.parse(userStr);
-      setUser(userData);
+      // 3. Fetch structural profile record from public.users table
+      const { data: userData, error: dbError } = await supabase
+        .from("users")
+        .select("id, full_name, email, role, status, country")
+        .eq("id", session.user.id)
+        .single();
 
+      if (dbError || !userData) {
+        console.error("Profile matching session ID not found:", dbError?.message);
+        router.push("/login");
+        return;
+      }
+
+      // 4. Admin Authorization Guard Rule
       if (userData.role !== "Admin") {
+        console.warn(`🛑 Unauthorized access attempt. User role "${userData.role}" is not Admin.`);
         router.push("/dashboard");
         return;
       }
-      
-      if (!surveyId) return;
+
+      // 5. Approval Constraint Guard Rule
+      if (userData.status !== "Approved") {
+        console.log("Account is not yet marked as Approved.");
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      // 6. Cache user data in localStorage
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      setIsAuthorized(true);
+
       await Promise.all([fetchSurvey(), fetchResponses()]);
-    } catch (err) {
-      console.error("Auth error:", err);
+    } catch (error) {
+      console.error("Critical error encountered during security verification:", error);
       router.push("/login");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      localStorage.removeItem("user");
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
     }
   };
 
@@ -168,17 +224,32 @@ export default function SurveyResultsPage() {
 
   const fetchResponses = async () => {
     try {
+      console.log(`📊 Fetching responses for survey: ${surveyId}`);
+      
+      // First, check if the survey exists and get its questions structure
+      const { data: surveyData, error: surveyError } = await supabase
+        .from("surveys")
+        .select("id, title, questions, status, created_at, description, category, type, metadata")
+        .eq("id", surveyId)
+        .single();
+
+      if (surveyError) {
+        console.error("Survey fetch error:", surveyError);
+        throw surveyError;
+      }
+
+      if (!surveyData) {
+        console.error("Survey not found");
+        return;
+      }
+
+      // Set the survey data
+      setSurvey(surveyData);
+
+      // Now fetch responses
       const { data, error } = await supabase
         .from("survey_responses")
-        .select(
-          `
-          *,
-          user:user_id (
-            full_name,
-            email
-          )
-        `
-        )
+        .select("*")
         .eq("survey_id", surveyId)
         .order("created_at", { ascending: false });
 
@@ -188,19 +259,57 @@ export default function SurveyResultsPage() {
       }
       
       console.log(`📊 Found ${data?.length || 0} responses`);
+      
+      // If we have responses, try to get user details
       if (data && data.length > 0) {
-        console.log("📊 First response:", JSON.stringify(data[0]).substring(0, 300));
-        console.log("📊 First response responses:", JSON.stringify(data[0].responses).substring(0, 300));
-      }
-      
-      setResponses(data || []);
-      
-      // Process analytics using the library
-      if (survey && data) {
-        processAnalyticsWithLibrary(data, survey);
+        // Get unique user IDs
+        const userIds = data.map(r => r.user_id).filter(id => id);
+        
+        if (userIds.length > 0) {
+          const { data: usersData, error: usersError } = await supabase
+            .from("users")
+            .select("id, full_name, email")
+            .in("id", userIds);
+
+          if (!usersError && usersData) {
+            // Attach user data to responses
+            const responsesWithUsers = data.map(response => ({
+              ...response,
+              user: usersData.find(u => u.id === response.user_id)
+            }));
+            setResponses(responsesWithUsers);
+            
+            // Process analytics with the survey data
+            processAnalyticsWithLibrary(responsesWithUsers, surveyData);
+          } else {
+            setResponses(data);
+            processAnalyticsWithLibrary(data, surveyData);
+          }
+        } else {
+          setResponses(data);
+          processAnalyticsWithLibrary(data, surveyData);
+        }
+      } else {
+        setResponses([]);
+        // Set empty analytics
+        setAnalytics({
+          totalResponses: 0,
+          uniqueRespondents: 0,
+          completionRate: 0,
+          averageTimeToComplete: 0,
+          responseRate: 0,
+          questionAnalytics: [],
+          demographicBreakdown: {
+            age_groups: {},
+            genders: {},
+            countries: {},
+          },
+          timeline: [],
+        });
       }
     } catch (error) {
       console.error("Error fetching responses:", error);
+      setResponses([]);
     }
   };
 
@@ -532,6 +641,10 @@ export default function SurveyResultsPage() {
     );
   }
 
+  if (!isAuthorized || !user) {
+    return null;
+  }
+
   if (!survey) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
@@ -591,7 +704,7 @@ export default function SurveyResultsPage() {
             </Link>
             <h1 className="text-2xl font-bold text-white">{survey.title}</h1>
             <p className="text-slate-400 text-sm">{survey.description}</p>
-            <div className="flex items-center gap-4 mt-2 text-sm text-slate-500">
+            <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-slate-500">
               <span className="flex items-center gap-1">
                 <Calendar className="w-3 h-3" />
                 Created: {new Date(survey.created_at).toLocaleDateString()}
@@ -637,6 +750,13 @@ export default function SurveyResultsPage() {
             >
               <Printer className="w-4 h-4" />
               Print
+            </button>
+            <button
+              onClick={logout}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="text-sm hidden sm:inline">Logout</span>
             </button>
           </div>
         </div>

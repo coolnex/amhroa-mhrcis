@@ -27,7 +27,10 @@ import {
   Zap,
   AlertTriangle,
   Loader2,
+  LogOut,
+  ArrowLeft,
 } from "lucide-react";
+import Link from "next/link";
 
 interface SystemMetrics {
   apiLatency: number;
@@ -62,6 +65,7 @@ export default function SystemHealthPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
+  const [isAuthorized, setIsAuthorized] = useState(false);
   const [metrics, setMetrics] = useState<SystemMetrics>({
     apiLatency: 0,
     databaseLatency: 0,
@@ -83,26 +87,93 @@ export default function SystemHealthPage() {
 
   useEffect(() => {
     checkAuth();
-    fetchAllSystemData();
-    const interval = setInterval(fetchAllSystemData, 60000); // Refresh every minute
-    return () => clearInterval(interval);
   }, []);
 
   const checkAuth = async () => {
-    const token = localStorage.getItem("token");
-    const userStr = localStorage.getItem("user");
+    try {
+      console.log("🔐 System Health - Verifying security clearance...");
 
-    if (!token || !userStr) {
+      // 1. First check localStorage for user profile
+      const userStr = localStorage.getItem("user");
+      
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          if (userData.role === "Admin" && userData.status === "Approved") {
+            setUser(userData);
+            setIsAuthorized(true);
+            await fetchAllSystemData();
+            const interval = setInterval(fetchAllSystemData, 60000);
+            return () => clearInterval(interval);
+          }
+        } catch (e) {
+          localStorage.removeItem("user");
+        }
+      }
+
+      // 2. Fetch active authentication token session from Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.log("No active session found, routing back to login page.");
+        router.push("/login");
+        return;
+      }
+
+      // 3. Fetch structural profile record from public.users table
+      const { data: userData, error: dbError } = await supabase
+        .from("users")
+        .select("id, full_name, email, role, status, country")
+        .eq("id", session.user.id)
+        .single();
+
+      if (dbError || !userData) {
+        console.error("Profile matching session ID not found:", dbError?.message);
+        router.push("/login");
+        return;
+      }
+
+      // 4. Admin Authorization Guard Rule
+      if (userData.role !== "Admin") {
+        console.warn(`🛑 Unauthorized access attempt. User role "${userData.role}" is not Admin.`);
+        router.push("/dashboard");
+        return;
+      }
+
+      // 5. Approval Constraint Guard Rule
+      if (userData.status !== "Approved") {
+        console.log("Account is not yet marked as Approved.");
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      // 6. Cache user data in localStorage
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      setIsAuthorized(true);
+
+      await fetchAllSystemData();
+      
+      // Set up auto-refresh interval
+      const interval = setInterval(fetchAllSystemData, 60000);
+      return () => clearInterval(interval);
+      
+    } catch (error) {
+      console.error("Critical error encountered during security verification:", error);
       router.push("/login");
-      return;
+    } finally {
+      setLoading(false);
     }
+  };
 
-    const userData = JSON.parse(userStr);
-    if (userData.role !== "Admin") {
-      router.push("/dashboard");
-      return;
+  const logout = async () => {
+    try {
+      localStorage.removeItem("user");
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
     }
-    setUser(userData);
   };
 
   const calculateUptime = () => {
@@ -176,7 +247,7 @@ export default function SystemHealthPage() {
         .eq("event_type", "backup")
         .order("created_at", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       // 8. Test API Endpoints
       const endpoints = [
@@ -289,11 +360,29 @@ export default function SystemHealthPage() {
     );
   }
 
+  if (!isAuthorized || !user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
       {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
-        <div className="relative px-6 md:px-8 py-8 md:py-10">
+        <div className="relative px-6 md:px-8 py-6 md:py-8">
+          <div className="flex justify-between items-center mb-4">
+            <Link href="/admin" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
+              <ArrowLeft className="w-4 h-4" />
+              Back to Admin
+            </Link>
+            <button
+              onClick={logout}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="text-sm hidden sm:inline">Logout</span>
+            </button>
+          </div>
+
           <div className="flex justify-between items-start flex-wrap gap-4">
             <div>
               <div className="flex items-center gap-3 mb-4">
@@ -543,7 +632,7 @@ export default function SystemHealthPage() {
             <div className="space-y-4">
               <div className="flex justify-between items-center py-2 border-b border-slate-700">
                 <span className="text-slate-400">Total Users</span>
-                <span className="text-white font-bold">{user?.id ? "Loading..." : (metrics.activeUsers > 0 ? metrics.activeUsers : "—")}</span>
+                <span className="text-white font-bold">{metrics.activeUsers > 0 ? metrics.activeUsers : "—"}</span>
               </div>
               <div className="flex justify-between items-center py-2 border-b border-slate-700">
                 <span className="text-slate-400">Total Requests (Reports + Funding)</span>

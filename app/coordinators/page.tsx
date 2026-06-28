@@ -73,6 +73,9 @@ interface FieldReport {
   severity: string;
   status: string;
   created_at: string;
+  location: string;
+  description: string;
+  evidence_url: string;
 }
 
 interface ReformMetric {
@@ -283,6 +286,8 @@ export default function CoordinatorDashboard() {
   const [policies, setPolicies] = useState<PolicyImplementation[]>([]);
   const [suicideDecrim, setSuicideDecrim] = useState<SuicideDecriminalization | null>(null);
   const [workforceData, setWorkforceData] = useState<WorkforceTracker | null>(null);
+  const [fieldReportTab, setFieldReportTab] = useState<"pending" | "approved" | "rejected">("pending");
+  const [actionLoadingField, setActionLoadingField] = useState<string | null>(null);
   
   const careSystemsSurveyId = surveyIds.care_systems;
   const financingSurveyId = surveyIds.financing;
@@ -309,7 +314,7 @@ export default function CoordinatorDashboard() {
           const userData = JSON.parse(userStr);
           const coordinatorTypes = ["Coordinator", "researcher_coordinator", "cso_coordinator", "mental_health_coordinator"];
           
-          if (coordinatorTypes.includes(userData.role) || userData.role === "Admin") {
+          if (coordinatorTypes.includes(userData.role) || userData.role === "Admin" || userData.role === "Regional_Executive") {
             setUser(userData);
             const assignedCountry = userData.assigned_country || userData.country || "Kenya";
             setSelectedCountry(assignedCountry);
@@ -353,7 +358,7 @@ export default function CoordinatorDashboard() {
       // 4. Coordinator Authorization Guard Rule
       const coordinatorTypes = ["Coordinator", "researcher_coordinator", "cso_coordinator", "mental_health_coordinator"];
       
-      if (!coordinatorTypes.includes(userData.role) && userData.role !== "Admin") {
+      if (!coordinatorTypes.includes(userData.role) && userData.role !== "Admin" && userData.role !== "Regional_Executive") {
         console.warn(`🛑 Unauthorized access attempt. User role "${userData.role}" is not a Coordinator.`);
         router.push("/dashboard");
         return;
@@ -389,6 +394,81 @@ export default function CoordinatorDashboard() {
     }
   };
 
+  const handleApproveFieldReport = async (reportId: string) => {
+    if (!user) return;
+    
+    setActionLoadingField(reportId);
+    try {
+      const { error } = await supabase
+        .from("field_reports")
+        .update({
+          status: "approved",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", reportId);
+  
+      if (error) throw error;
+      
+      alert("Field report approved successfully!");
+      await fetchFieldReports(selectedCountry);
+    } catch (error) {
+      console.error("Error approving field report:", error);
+      alert("Failed to approve field report");
+    } finally {
+      setActionLoadingField(null);
+    }
+  };
+  
+  const handleRejectFieldReport = async (reportId: string) => {
+    const reason = prompt("Please enter the reason for rejection:");
+    if (reason === null) return;
+    
+    if (!reason.trim()) {
+      alert("Please provide a reason for rejection");
+      return;
+    }
+  
+    setActionLoadingField(reportId);
+    try {
+      const { error } = await supabase
+        .from("field_reports")
+        .update({
+          status: "rejected",
+          updated_at: new Date().toISOString(),
+          // Store rejection reason in a notes field or metadata
+          metadata: { rejection_reason: reason }
+        })
+        .eq("id", reportId);
+  
+      if (error) throw error;
+      
+      alert("Field report rejected successfully!");
+      await fetchFieldReports(selectedCountry);
+    } catch (error) {
+      console.error("Error rejecting field report:", error);
+      alert("Failed to reject field report");
+    } finally {
+      setActionLoadingField(null);
+    }
+  };
+  
+  
+  // 4. Add field report status badge function
+  const getFieldReportStatusBadge = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "approved":
+      case "verified":
+        return { color: "bg-emerald-500/20 text-emerald-400", icon: CheckCircle };
+      case "pending":
+        return { color: "bg-yellow-500/20 text-yellow-400", icon: Clock };
+      case "rejected":
+        return { color: "bg-red-500/20 text-red-400", icon: XCircle };
+      case "in progress":
+        return { color: "bg-blue-500/20 text-blue-400", icon: Activity };
+      default:
+        return { color: "bg-slate-500/20 text-slate-400", icon: Clock };
+    }
+  };
   const fetchAllData = async (country: string) => {
     try {
       console.log("🔍 Fetching all data for country:", country);
@@ -1286,26 +1366,173 @@ const getSubmissionStatusBadge = (status: string) => {
 
         {/* Field Reports Tab */}
         {activeTab === "field-reports" && (
-          <div className="space-y-3">
-            {fieldReports.map((report) => (
-              <div key={report.id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 hover:border-cyan-500/30 transition-all">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="text-white font-medium">{report.title}</h4>
-                    <p className="text-slate-400 text-sm">{report.incident_type}</p>
-                    <p className="text-slate-400 text-xs mt-1">{new Date(report.created_at).toLocaleDateString()}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className={`px-2 py-1 rounded-full text-xs ${getSeverityBadge(report.severity)}`}>
-                      {report.severity}
-                    </span>
-                    <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadge(report.status)}`}>
-                      {report.status}
-                    </span>
-                  </div>
+          <div className="space-y-4">
+            {/* Status Filter */}
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button
+                onClick={() => setFieldReportTab("pending")}
+                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                  fieldReportTab === "pending" ? "bg-yellow-600 text-white" : "bg-slate-700 text-slate-400 hover:text-white"
+                }`}
+              >
+                Pending ({fieldReports.filter(r => r.status === "pending" || r.status === "Pending").length})
+              </button>
+              <button
+                onClick={() => setFieldReportTab("approved")}
+                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                  fieldReportTab === "approved" ? "bg-emerald-600 text-white" : "bg-slate-700 text-slate-400 hover:text-white"
+                }`}
+              >
+                Approved ({fieldReports.filter(r => r.status === "approved" || r.status === "Approved" || r.status === "verified").length})
+              </button>
+              <button
+                onClick={() => setFieldReportTab("rejected")}
+                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                  fieldReportTab === "rejected" ? "bg-red-600 text-white" : "bg-slate-700 text-slate-400 hover:text-white"
+                }`}
+              >
+                Rejected ({fieldReports.filter(r => r.status === "rejected" || r.status === "Rejected").length})
+              </button>
+            </div>
+
+            {/* Field Reports List */}
+            <div className="space-y-3">
+              {fieldReports
+                .filter(report => {
+                  if (fieldReportTab === "pending") {
+                    return report.status === "pending" || report.status === "Pending";
+                  }
+                  if (fieldReportTab === "approved") {
+                    return report.status === "approved" || report.status === "Approved" || report.status === "verified";
+                  }
+                  if (fieldReportTab === "rejected") {
+                    return report.status === "rejected" || report.status === "Rejected";
+                  }
+                  return true;
+                })
+                .map((report) => {
+                  const statusBadge = getFieldReportStatusBadge(report.status);
+                  const StatusIcon = statusBadge.icon;
+                  
+                  return (
+                    <div key={report.id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 hover:border-cyan-500/30 transition-all">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2 flex-wrap">
+                            <h4 className="text-white font-medium">{report.title}</h4>
+                            <span className={`px-2 py-1 rounded-full text-xs ${getSeverityBadge(report.severity)}`}>
+                              {report.severity}
+                            </span>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusBadge.color}`}>
+                              <StatusIcon className="w-3 h-3 inline mr-1" />
+                              {report.status}
+                            </span>
+                          </div>
+                          <p className="text-slate-400 text-sm">{report.incident_type}</p>
+                          <p className="text-slate-400 text-sm mt-1">{report.description}</p>
+                          {report.location && (
+                            <p className="text-slate-400 text-xs mt-1 flex items-center gap-1">
+                              <MapPin className="w-3 h-3" />
+                              {report.location}
+                            </p>
+                          )}
+                          <p className="text-slate-500 text-xs mt-2">
+                            Reported: {new Date(report.created_at).toLocaleDateString()}
+                          </p>
+                          {report.evidence_url && (
+                            <a
+                              href={report.evidence_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-cyan-400 text-xs hover:text-cyan-300 transition-colors flex items-center gap-1 mt-1"
+                            >
+                              <Eye className="w-3 h-3" />
+                              View Evidence
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex gap-2 ml-4 flex-shrink-0">
+                          {report.status === "pending" || report.status === "Pending" ? (
+                            <>
+                              <button
+                                onClick={() => handleApproveFieldReport(report.id)}
+                                disabled={actionLoadingField === report.id}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-white text-sm transition-colors disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {actionLoadingField === report.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle className="w-4 h-4" />
+                                )}
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleRejectFieldReport(report.id)}
+                                disabled={actionLoadingField === report.id}
+                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-white text-sm transition-colors disabled:opacity-50 flex items-center gap-1"
+                              >
+                                <XCircle className="w-4 h-4" />
+                                Reject
+                              </button>
+                            </>
+                          ) : report.status === "rejected" || report.status === "Rejected" ? (
+                            <button
+                              onClick={async () => {
+                                if (confirm("Do you want to reopen this field report for review?")) {
+                                  try {
+                                    const { error } = await supabase
+                                      .from("field_reports")
+                                      .update({
+                                        status: "pending",
+                                        updated_at: new Date().toISOString(),
+                                        metadata: null
+                                      })
+                                      .eq("id", report.id);
+                                    if (error) throw error;
+                                    await fetchFieldReports(selectedCountry);
+                                  } catch (error) {
+                                    console.error("Error reopening field report:", error);
+                                    alert("Failed to reopen field report");
+                                  }
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-700 rounded-lg text-white text-sm transition-colors flex items-center gap-1"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                              Reopen
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              
+              {fieldReports.filter(report => {
+                if (fieldReportTab === "pending") {
+                  return report.status === "pending" || report.status === "Pending";
+                }
+                if (fieldReportTab === "approved") {
+                  return report.status === "approved" || report.status === "Approved" || report.status === "verified";
+                }
+                if (fieldReportTab === "rejected") {
+                  return report.status === "rejected" || report.status === "Rejected";
+                }
+                return true;
+              }).length === 0 && (
+                <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-12 text-center">
+                  <AlertCircle className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                  <p className="text-slate-400">No {fieldReportTab} field reports found</p>
+                  <p className="text-slate-500 text-sm mt-1">
+                    {fieldReportTab === "pending" 
+                      ? "All field reports have been reviewed" 
+                      : fieldReportTab === "approved"
+                      ? "No approved field reports yet"
+                      : "No rejected field reports"}
+                  </p>
                 </div>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
         )}
 

@@ -1,5 +1,4 @@
-// app/dashboard/page.tsx (Updated with Redirect Button)
-
+// app/dashboard/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -39,13 +38,25 @@ import {
   RefreshCw,
   UserCog,
   Home,
+  Bot,
+  Lightbulb,
+  Flag,
+  Sparkles,
+  Brain,
+  Network,
+  Map,
+  Compass,
+  Radar,
+  LineChart,
+  Database,
+  Cpu,
 } from "lucide-react";
 
 interface User {
   id: string;
   full_name: string;
   email: string;
-  role: "Admin" | "Policymaker" | "Researcher" | "CSO" | "Coordinator" | "Donor" | "mental_health_professional" | "coordinator" | "admin_coordinator" | "policymaker_coordinator" | "donor_coordinator" | "researcher_coordinator" | "mental_health_coordinator";
+  role: "Admin" | "Policymaker" | "Researcher" | "CSO" | "Coordinator" | "Donor" | "Mental_Health_Professional" | "coordinator" | "Regional_Executive" | "admin_coordinator" | "policymaker_coordinator" | "donor_coordinator" | "researcher_coordinator" | "mental_health_coordinator";
   country?: string;
   organization?: string;
   avatar?: string;
@@ -73,7 +84,97 @@ interface QuickLink {
   href: string;
   description: string;
   icon: any;
+  color?: string;
 }
+
+interface IntelligenceHubLink {
+  name: string;
+  href: string;
+  icon: any;
+  description: string;
+  status?: "new" | "beta" | "active";
+}
+
+// Intelligence Hub Links
+const INTELLIGENCE_HUB_LINKS: IntelligenceHubLink[] = [
+  { 
+    name: "Analytics", 
+    href: "/analytics", 
+    icon: BarChart3,
+    description: "Advanced data analytics and visualization",
+    status: "active"
+  },
+  { 
+    name: "AI Scoring", 
+    href: "/ai-scoring", 
+    icon: Star,
+    description: "AI-powered reform scoring system",
+    status: "new"
+  },
+  { 
+    name: "AI Country Profile", 
+    href: "/ai-country-profile", 
+    icon: Bot,
+    description: "Intelligent country reform profiles",
+    status: "active"
+  },
+  { 
+    name: "SDG Intelligence", 
+    href: "/sdg-intelligence", 
+    icon: Target,
+    description: "SDG alignment and tracking",
+    status: "active"
+  },
+  { 
+    name: "Reform Intelligence", 
+    href: "/reform-intelligence", 
+    icon: Lightbulb,
+    description: "Reform progress and insights",
+    status: "active"
+  },
+  { 
+    name: "Agenda 2063", 
+    href: "/agenda2063", 
+    icon: Flag,
+    description: "African Union Agenda 2063 tracking",
+    status: "active"
+  },
+  { 
+    name: "AI Policy", 
+    href: "/ai-policy", 
+    icon: Brain,
+    description: "AI-driven policy recommendations",
+    status: "new"
+  },
+  { 
+    name: "Network Intelligence", 
+    href: "/network-intelligence", 
+    icon: Network,
+    description: "Continental collaboration insights",
+    status: "beta"
+  },
+  { 
+    name: "Predictive Analytics", 
+    href: "/predictive-analytics", 
+    icon: Radar,
+    description: "Forecast reform trajectories",
+    status: "beta"
+  },
+  { 
+    name: "Data Explorer", 
+    href: "/data-explorer", 
+    icon: Database,
+    description: "Explore continental datasets",
+    status: "active"
+  },
+  { 
+    name: "Impact Intelligence", 
+    href: "/impact-intelligence", 
+    icon: Sparkles,
+    description: "Measure reform impact",
+    status: "active"
+  },
+];
 
 // Role-specific configurations
 const roleConfig: Record<string, any> = {
@@ -227,7 +328,6 @@ export default function DashboardPage() {
       try {
         console.log("🔐 Dashboard - Verifying Supabase session...");
   
-        // 1. Fetch active authentication token session directly from Supabase
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
   
         if (sessionError || !session?.user) {
@@ -236,7 +336,6 @@ export default function DashboardPage() {
           return;
         }
   
-        // 2. Fetch custom user meta attributes (role, status) from your public.users table
         const { data: userData, error: dbError } = await supabase
           .from("users")
           .select("id, full_name, email, role, status")
@@ -251,20 +350,17 @@ export default function DashboardPage() {
   
         console.log("Dashboard - Logged User profile role:", userData.role);
         
-        // 3. Check if user is approved
         if (userData.status !== "Approved") {
           console.log("User not approved, redirecting to login");
           router.push("/login?message=Account pending approval");
           return;
         }
         
-        // 4. Hydrate dashboard state values matching your layout properties
         setUser(userData);
         setGreeting(getGreeting());
         setCurrentTime(getCurrentTime());
         setRecentActivities(getRecentActivities(userData.role));
         
-        // Update clock time intervals safely
         const interval = setInterval(() => {
           setCurrentTime(getCurrentTime());
         }, 60000);
@@ -280,7 +376,6 @@ export default function DashboardPage() {
   
     checkAuth();
   }, [router]);
-  
 
   const logout = () => {
     localStorage.removeItem("token");
@@ -288,15 +383,11 @@ export default function DashboardPage() {
     router.push("/login");
   };
 
-  // Fixed redirectUser function with correct paths
   const redirectUser = (role: string) => {
     console.log("🔍 Redirecting user with role:", role);
     
-    // Normalize role to lowercase for comparison
     const normalizedRole = role?.toLowerCase() || "";
-    console.log("📌 Normalized role:", normalizedRole);
     
-    // Role to path mapping
     const roleMap: Record<string, string> = {
       "admin": "/admin",
       "policymaker": "/policymaker",
@@ -311,13 +402,10 @@ export default function DashboardPage() {
       "admin_coordinator": "/coordinators",
       "donor": "/donor",
       "mental_health_professional": "/mental-health-professional",
+      "regional_executive": "/regional-executive",
     };
 
-    // Find the matching path
     const path = roleMap[normalizedRole] || "/";
-    console.log("🚀 Redirecting to:", path);
-    
-    // Use window.location for immediate redirect
     window.location.href = path;
   };
 
@@ -350,6 +438,17 @@ export default function DashboardPage() {
       red: "bg-red-500/10 border-red-500/20 text-red-400",
     };
     return colors[color] || colors.cyan;
+  };
+
+  const getStatusBadge = (status?: string) => {
+    switch (status) {
+      case "new":
+        return <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full">New</span>;
+      case "beta":
+        return <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">Beta</span>;
+      default:
+        return null;
+    }
   };
 
   if (loading) {
@@ -399,7 +498,6 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              {/* NEW: Go to Your Dashboard Button */}
               <button
                 onClick={() => redirectUser(user.role)}
                 className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 rounded-xl text-white font-medium transition-all shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 hover:scale-105"
@@ -426,12 +524,14 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
       <div className="px-4 md:px-8 py-6">
-        {/* Add Advocacy Widget */}
+        {/* Advocacy Widget */}
         <div className="mb-6">
           <AdvocacyWidget />
         </div>
-        {/* Add Alerts Widget */}
+        
+        {/* Alerts Widget */}
         <div className="mb-6">
           <AlertsWidget 
             userRole={user?.role}
@@ -441,8 +541,7 @@ export default function DashboardPage() {
             showViewAll={true}
           />
         </div>
-        </div>
-      <div className="px-4 md:px-8 py-6">
+
         {/* Metrics Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {metrics.map((metric: DashboardMetric, idx: number) => {
@@ -465,6 +564,64 @@ export default function DashboardPage() {
               </div>
             );
           })}
+        </div>
+
+        {/* INTELLIGENCE HUB SECTION - Main Feature */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-gradient-to-r from-purple-600/20 to-cyan-600/20 rounded-xl border border-purple-500/30">
+                <Brain className="w-6 h-6 text-purple-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white">Intelligence Hub</h2>
+                <p className="text-slate-400 text-sm">AI-powered analytics and insights for continental reform</p>
+              </div>
+            </div>
+            <Link 
+              href="/intelligence-hub" 
+              className="text-cyan-400 hover:text-cyan-300 text-sm flex items-center gap-1 transition-colors"
+            >
+              View All <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {INTELLIGENCE_HUB_LINKS.map((link, idx) => {
+              const Icon = link.icon;
+              const colors = [
+                "from-cyan-600/10 to-blue-600/10 border-cyan-500/20",
+                "from-purple-600/10 to-pink-600/10 border-purple-500/20",
+                "from-emerald-600/10 to-cyan-600/10 border-emerald-500/20",
+                "from-yellow-600/10 to-orange-600/10 border-yellow-500/20",
+                "from-red-600/10 to-pink-600/10 border-red-500/20",
+                "from-blue-600/10 to-indigo-600/10 border-blue-500/20",
+              ];
+              const color = colors[idx % colors.length];
+              
+              return (
+                <Link
+                  key={idx}
+                  href={link.href}
+                  className={`group bg-gradient-to-br ${color} rounded-2xl border p-5 transition-all hover:scale-105 hover:shadow-lg hover:shadow-purple-500/10`}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="p-2 bg-slate-800/50 rounded-xl group-hover:bg-slate-800/70 transition-colors">
+                      <Icon className="w-5 h-5 text-cyan-400" />
+                    </div>
+                    {getStatusBadge(link.status)}
+                  </div>
+                  <h3 className="text-white font-medium group-hover:text-cyan-400 transition-colors">
+                    {link.name}
+                  </h3>
+                  <p className="text-slate-400 text-xs mt-1">{link.description}</p>
+                  <div className="mt-3 flex items-center text-cyan-400 text-xs opacity-0 group-hover:opacity-100 transition-opacity">
+                    Access <ChevronRight className="w-3 h-3 ml-1 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
         </div>
 
         {/* Quick Links & Recent Activity */}

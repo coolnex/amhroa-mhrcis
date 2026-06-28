@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { INTERNAL_SURVEY_TEMPLATES, getInternalSurveyOptions } from "@/lib/survey_templates/internal-templates";
 import {
@@ -26,6 +26,7 @@ import {
   Unlock,
   ChevronDown,
   ChevronRight,
+  LogOut,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -44,7 +45,7 @@ interface Field {
     field: string;
     value: any;
   };
-  visible?: boolean; // For toggling visibility
+  visible?: boolean;
 }
 
 interface Section {
@@ -64,6 +65,8 @@ interface SurveyBuilder {
   isInternal: boolean;
   status: "draft" | "published" | "archived";
   targetAudience: "all" | "team" | "coordinators" | "public";
+  targetCountries?: string[];
+  targetRoles?: string[];
   startDate?: string;
   endDate?: string;
   createdBy: string;
@@ -91,6 +94,8 @@ const TARGET_AUDIENCES = [
 
 export default function SurveyBuilderPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("id");
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -99,6 +104,8 @@ export default function SurveyBuilderPage() {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState("");
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const [survey, setSurvey] = useState<SurveyBuilder>({
     id: "",
@@ -109,7 +116,9 @@ export default function SurveyBuilderPage() {
     sections: [],
     isInternal: true,
     status: "draft",
-    targetAudience: "team",
+    targetAudience: "all",
+    targetCountries: [],
+    targetRoles: [],
     createdBy: "",
     createdAt: new Date().toISOString()
   });
@@ -121,52 +130,156 @@ export default function SurveyBuilderPage() {
   const checkAuth = async () => {
     try {
       console.log("🔐 Guard Check - Verifying Admin permissions for Survey Creation...");
-  
-      // 1. Fetch active authentication token session from Supabase
+
+      // 1. First check localStorage for user profile
+      const userStr = localStorage.getItem("user");
+      
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          if (userData.role === "Admin" && userData.status === "Approved") {
+            setUser(userData);
+            setIsAuthorized(true);
+            setSurvey(prev => ({ ...prev, createdBy: userData.id }));
+            
+            // If editing, load existing survey
+            if (editId) {
+              await loadSurvey(editId);
+            }
+            
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          localStorage.removeItem("user");
+        }
+      }
+
+      // 2. Fetch active authentication token session from Supabase
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-  
+
       if (sessionError || !session?.user) {
         console.log("No active authentication token found, routing back to login.");
         router.push("/login");
         return;
       }
-  
-      // 2. Fetch structural profile columns from public.users directory table
+
+      // 3. Fetch structural profile columns from public.users directory table
       const { data: userData, error: dbError } = await supabase
         .from("users")
         .select("id, full_name, email, role, status")
         .eq("id", session.user.id)
         .single();
-  
+
       if (dbError || !userData) {
         console.error("Profile matching session ID not found in database registry:", dbError?.message);
         router.push("/login");
         return;
       }
-  
-      // 3. User Context Hydration
-      setUser(userData);
-  
+
       // 4. Admin Role Access Guard
       if (userData.role !== "Admin") {
         console.warn(`🛑 Unauthorized access attempt. User role "${userData.role}" is not an Admin.`);
         router.push("/dashboard");
         return;
       }
-  
-      // 5. Inject verified User ID into Survey State payload safely
-      setSurvey(prev => ({ 
-        ...prev, 
-        createdBy: userData.id 
-      }));
+
+      // 5. Approval Constraint Guard Rule
+      if (userData.status !== "Approved") {
+        console.log("Account is not yet marked as Approved.");
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      // 6. Cache user data and set state
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      setIsAuthorized(true);
+      setSurvey(prev => ({ ...prev, createdBy: userData.id }));
+
+      // If editing, load existing survey
+      if (editId) {
+        await loadSurvey(editId);
+      }
       
-      setLoading(false);
     } catch (err) {
       console.error("Catastrophic error inside admin authorization checker:", err);
       router.push("/login");
+    } finally {
+      setLoading(false);
     }
   };
-  
+
+  const logout = async () => {
+    try {
+      localStorage.removeItem("user");
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
+  const loadSurvey = async (surveyId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("surveys")
+        .select("*")
+        .eq("id", surveyId)
+        .single();
+
+      if (error) throw error;
+      if (!data) {
+        setError("Survey not found");
+        return;
+      }
+
+      setIsEditing(true);
+      
+      // Parse questions back to sections
+      const sections = data.questions.map((section: any) => ({
+        id: `section_${Date.now()}_${Math.random()}`,
+        title: section.sectionTitle || "Section",
+        visible: section.visible !== false,
+        fields: section.questions.map((field: any) => ({
+          id: field.id || `field_${Date.now()}_${Math.random()}`,
+          label: field.label || "Question",
+          type: field.type || "text",
+          required: field.required || false,
+          options: field.options || [],
+          placeholder: field.placeholder || "",
+          helpText: field.helpText || "",
+          min: field.min,
+          max: field.max,
+          rows: field.rows,
+          conditional: field.conditional,
+          visible: true,
+        }))
+      }));
+
+      setSurvey({
+        id: data.id,
+        title: data.title,
+        description: data.description || "",
+        category: data.category || "Internal",
+        type: data.type || "",
+        sections: sections,
+        isInternal: data.type === "internal",
+        status: data.status || "draft",
+        targetAudience: data.metadata?.targetAudience || "all",
+        targetCountries: data.metadata?.targetCountries || [],
+        targetRoles: data.metadata?.targetRoles || [],
+        startDate: data.metadata?.startDate || "",
+        endDate: data.metadata?.endDate || "",
+        createdBy: data.created_by,
+        createdAt: data.created_at,
+      });
+
+    } catch (error) {
+      console.error("Error loading survey:", error);
+      setError("Failed to load survey");
+    }
+  };
 
   const handleTemplateSelect = (templateId: string) => {
     const template = INTERNAL_SURVEY_TEMPLATES[templateId as keyof typeof INTERNAL_SURVEY_TEMPLATES];
@@ -308,29 +421,48 @@ export default function SurveyBuilderPage() {
           }))
       }));
 
-      const { error: insertError } = await supabase
-        .from("surveys")
-        .insert({
-          title: survey.title,
-          description: survey.description,
-          category: survey.category,
-          type: "internal",
-          questions: questions,
-          status: survey.status,
-          metadata: {
-            isInternal: true,
-            targetAudience: survey.targetAudience,
-            templateId: selectedTemplate,
-            startDate: survey.startDate,
-            endDate: survey.endDate,
-            createdBy: user.id,
-            type: survey.type
-          },
-          created_by: user.id,
-          created_at: new Date().toISOString()
-        });
+      const surveyData = {
+        title: survey.title,
+        description: survey.description,
+        category: survey.category,
+        type: "internal",
+        questions: questions,
+        status: survey.status,
+        metadata: {
+          isInternal: true,
+          targetAudience: survey.targetAudience,
+          targetCountries: survey.targetCountries || [],
+          targetRoles: survey.targetRoles || [],
+          templateId: selectedTemplate,
+          startDate: survey.startDate,
+          endDate: survey.endDate,
+          createdBy: user.id,
+          type: survey.type
+        },
+        created_by: user.id,
+        updated_at: new Date().toISOString()
+      };
 
-      if (insertError) throw insertError;
+      let result;
+      if (isEditing && survey.id) {
+        // Update existing survey
+        result = await supabase
+          .from("surveys")
+          .update(surveyData)
+          .eq("id", survey.id)
+          .select();
+      } else {
+        // Create new survey
+        result = await supabase
+          .from("surveys")
+          .insert({
+            ...surveyData,
+            created_at: new Date().toISOString()
+          })
+          .select();
+      }
+
+      if (result.error) throw result.error;
 
       setSuccess(true);
       setTimeout(() => {
@@ -483,42 +615,77 @@ export default function SurveyBuilderPage() {
     );
   }
 
+  if (!isAuthorized || !user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
-      <div className="px-4 md:px-8 py-6">
-        <div className="flex justify-between items-center mb-6">
-          <Link href="/admin/surveys" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
-            <ArrowLeft className="w-4 h-4" />
-            Back to Surveys
-          </Link>
-          <div className="flex gap-2">
+      {/* Header */}
+      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
+        <div className="relative px-6 md:px-8 py-6 md:py-8">
+          <div className="flex justify-between items-center mb-4">
+            <Link href="/admin/surveys" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
+              <ArrowLeft className="w-4 h-4" />
+              Back to Surveys
+            </Link>
             <button
-              onClick={() => setShowPreview(!showPreview)}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition-colors flex items-center gap-2"
+              onClick={logout}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors"
             >
-              <Eye className="w-4 h-4" />
-              {showPreview ? "Edit" : "Preview"}
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors disabled:opacity-50 flex items-center gap-2"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  Save Survey
-                </>
-              )}
+              <LogOut className="w-4 h-4" />
+              <span className="text-sm hidden sm:inline">Logout</span>
             </button>
           </div>
-        </div>
 
+          <div className="flex justify-between items-start flex-wrap gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="px-3 py-1 bg-cyan-500/20 rounded-full border border-cyan-500/30">
+                  <span className="text-cyan-300 text-xs font-mono tracking-wider">
+                    {isEditing ? "EDIT SURVEY" : "SURVEY BUILDER"}
+                  </span>
+                </div>
+              </div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+                {isEditing ? "Edit Survey" : "Create New Survey"}
+              </h1>
+              <p className="text-slate-400 mt-1">
+                {isEditing ? "Modify your existing survey" : "Build a new survey for data collection"}
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowPreview(!showPreview)}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-white transition-colors flex items-center gap-2"
+              >
+                <Eye className="w-4 h-4" />
+                {showPreview ? "Edit" : "Preview"}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    {isEditing ? "Update Survey" : "Save Survey"}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 md:px-8 py-6">
         {error && (
           <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-red-400" />

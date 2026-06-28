@@ -342,6 +342,62 @@ export default function SurveyFormPage() {
     return true;
   };
 
+  // Add this check before attempting to submit
+const checkCanSubmit = async () => {
+  try {
+    // Check if user exists and is approved
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("id, status")
+      .eq("id", user.id)
+      .single();
+      
+    if (userError || !userData) {
+      console.error("User not found:", userError);
+      return false;
+    }
+    
+    if (userData.status !== "Approved") {
+      setFormError("Your account must be approved to submit surveys.");
+      return false;
+    }
+    
+    // Check if survey exists and is active
+    const { data: surveyData, error: surveyError } = await supabase
+      .from("surveys")
+      .select("id, status")
+      .eq("id", surveyId)
+      .single();
+      
+    if (surveyError || !surveyData) {
+      setFormError("Survey not found.");
+      return false;
+    }
+    
+    if (surveyData.status !== "Active" && surveyData.status !== "published") {
+      setFormError("This survey is no longer accepting responses.");
+      return false;
+    }
+    
+    // Check if user already submitted
+    const { data: existing, error: existingError } = await supabase
+      .from("survey_responses")
+      .select("id")
+      .eq("survey_id", surveyId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+      
+    if (existing) {
+      setFormError("You have already completed this survey.");
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error("Error checking submission eligibility:", error);
+    return false;
+  }
+};
   /* -------------------------------- */
   /* Handle Submit                    */
   /* -------------------------------- */
@@ -358,8 +414,15 @@ export default function SurveyFormPage() {
     if (!validateForm()) {
       return;
     }
+    // Check if user can submit
+    const canSubmit = await checkCanSubmit();
+    if (!canSubmit) {
+      return;
+    }
 
     setSubmitting(true);
+    setFormError("");
+    
     try {
       // Extract all questions from the survey
       const allQuestions = extractAllQuestions(survey?.questions);
@@ -388,16 +451,43 @@ export default function SurveyFormPage() {
 
       console.log("📊 Final response data:", responseData);
 
-      const { error } = await supabase.from("survey_responses").insert({
+      // Check if user is authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert("Your session has expired. Please log in again.");
+        router.push("/login");
+        return;
+      }
+
+      // Insert the response
+      const { data, error } = await supabase.from("survey_responses").insert({
         survey_id: surveyId,
         user_id: user.id,
         responses: responseData,
-      });
+        submitted_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      }).select();
 
       if (error) {
         console.error("❌ Supabase insert error:", error);
-        throw error;
+        
+        // Check for specific error types
+        if (error.code === '42501') {
+          // RLS policy violation
+          setFormError("You don't have permission to submit this survey. Please contact an administrator.");
+        } else if (error.code === '23503') {
+          // Foreign key violation
+          setFormError("The survey you're trying to submit doesn't exist or has been removed.");
+        } else if (error.code === '23505') {
+          // Duplicate key violation (if there's a unique constraint)
+          setFormError("You've already submitted this survey.");
+        } else {
+          setFormError(`Failed to submit: ${error.message}`);
+        }
+        return;
       }
+
+      console.log("✅ Survey submitted successfully:", data);
 
       // Clear draft after successful submission
       localStorage.removeItem(draftKey);
@@ -405,14 +495,17 @@ export default function SurveyFormPage() {
       setTimeout(() => {
         router.push("/data-collection/surveys");
       }, 3000);
+      
     } catch (error: any) {
-      console.error("Error submitting survey:", error);
-
+      console.error("❌ Error submitting survey:", error);
+      
       if (error.message?.includes("JWT") || error.message?.includes("auth")) {
-        alert("Your session has expired. Please log in again.");
-        router.push("/login");
+        setFormError("Your session has expired. Please log in again.");
+        setTimeout(() => {
+          router.push("/login");
+        }, 2000);
       } else {
-        alert("Failed to submit survey. Please try again.");
+        setFormError(error.message || "Failed to submit survey. Please try again.");
       }
     } finally {
       setSubmitting(false);

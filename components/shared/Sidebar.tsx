@@ -53,6 +53,7 @@ type UserRole =
   | "Researcher" 
   | "CSO" 
   | "Coordinator" 
+  | "Regional_Executive"
   | "Donor" 
   | "Mental_Health_Professional" 
   | "public"
@@ -70,6 +71,7 @@ const roleDisplayNames: Record<UserRole, string> = {
   Researcher: "Research Lead",
   CSO: "CSO Director",
   Coordinator: "Country Coordinator",
+  Regional_Executive: "Regional Executive Director",
   Donor: "Investment Director",
   Mental_Health_Professional: "Mental Health Professional",
   public: "Public User",
@@ -88,6 +90,7 @@ const roleBadges: Record<UserRole, { color: string; bg: string }> = {
   Researcher: { color: "text-blue-400", bg: "bg-blue-500/20" },
   CSO: { color: "text-emerald-400", bg: "bg-emerald-500/20" },
   Coordinator: { color: "text-orange-400", bg: "bg-orange-500/20" },
+  Regional_Executive: { color:"text-orange-400", bg: "bg-orange-500/20"},
   Donor: { color: "text-yellow-400", bg: "bg-yellow-500/20" },
   Mental_Health_Professional: { color: "text-pink-400", bg: "bg-pink-500/20" },
   public: { color: "text-slate-400", bg: "bg-slate-500/20" },
@@ -131,7 +134,7 @@ const navigationGroups = {
   regionalexecutives: {
     label: "REGIONAL OVERSIGHT",
     icon: Globe,
-    roles: ["admin", "regional_executive"],
+    roles: ["Admin", "Regional_Executive"],
     links: [
       { name: "Regional Dashboard", href: "/regional-executive", icon: Globe },
     ],
@@ -139,37 +142,20 @@ const navigationGroups = {
   continental: {
     label: "CONTINENTAL OVERSIGHT",
     icon: Globe,
-    roles: ["Admin", "admin_coordinator", "regional_executive" , "Policymaker", "policymaker_coordinator", "donor", "donor_coordinator", "researcher", "researcher_coordinator", "mental_health_professional", "mental_health_coordinator"],
+    roles: ["Admin", "admin_coordinator", "Regional_Executive" , "Policymaker", "policymaker_coordinator", "donor", "donor_coordinator", "researcher", "researcher_coordinator", "mental_health_professional", "mental_health_coordinator"],
     links: [
       { name: "Executive Dashboard", href: "/executive-dashboard", icon: Crown },
       { name: "Continental Reforms", href: "/continental-reform-dashboard", icon: Globe},
       { name: "Countries", href: "/countries", icon: Globe },
-      { name: "Heatmap", href: "/heatmap", icon: Map },
-      { name: "Compare", href: "/compare", icon: GitCompare },
-      { name: "Rankings", href: "/rankings", icon: Trophy },
-    ],
-  },
-  intelligence: {
-    label: "INTELLIGENCE HUB",
-    icon: TrendingUp,
-    roles: ["Admin", "admin_coordinator", "regional_executive" , "Policymaker", "policymaker_coordinator", "Donor", "donor_coordinator", "Researcher", "researcher_coordinator", "Mental_Health_Professional", "mental_health_coordinator"],
-    links: [
-      { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-      { name: "Analytics", href: "/analytics", icon: BarChart3 },
-      { name: "AI Scoring", href: "/ai-scoring", icon: Star },
-      { name: "AI Country Profile", href: "/ai-country-profile", icon: Bot },
-      { name: "SDG Intelligence", href: "/sdg-intelligence", icon: Target },
-      { name: "Reform Intelligence", href: "/reform-intelligence", icon: Lightbulb },
-      { name: "Agenda 2063", href: "/agenda2063", icon: Flag },
-      { name: "AI Policy", href: "/ai-policy", icon: Bot },
+      { name: "Intelligent Hub", href: "/dashboard", icon: LayoutDashboard },
     ],
   },
   repository: {
     label: "KNOWLEDGE REPOSITORY",
     icon: FolderGit2,
-    roles: ["Admin", "admin_coordinator", "regional_executive" , "Researcher", "researcher_coordinator", "CSO", "cso_coordinator", "Coordinator", "Mental_Health_Professional", "mental_health_coordinator", "Donor", "donor_coordinator"],
+    roles: ["Admin", "admin_coordinator", "Regional_Executive" , "Researcher", "researcher_coordinator", "CSO", "cso_coordinator", "Coordinator", "Mental_Health_Professional", "mental_health_coordinator", "Donor", "donor_coordinator"],
     links: [
-      { name: "Repository", href: "/repository", icon: FolderGit2 },
+      { name: "Repository", href: "/knowledge-repository", icon: FolderGit2 },
       { name: "Research Library", href: "/research-library", icon: Bot },
       { name: "Submissions", href: "/data-collection/submissions", icon: FileCheck },
     ],
@@ -177,7 +163,7 @@ const navigationGroups = {
   collaboration: {
     label: "COLLABORATION",
     icon: Handshake,
-    roles: ["cso", "cso_coordinator", "regional_executive" , "coordinator", "Researcher", "researcher_coordinator", "Mental_Health_Professional", "mental_health_coordinator", "Donor", "donor_coordinator", "admin", "admin_coordinator"],
+    roles: ["cso", "cso_coordinator", "Regional_Executive" , "coordinator", "Researcher", "researcher_coordinator", "Mental_Health_Professional", "mental_health_coordinator", "Donor", "donor_coordinator", "admin", "admin_coordinator"],
     links: [
       { name: "Organizations", href: "/organizations", icon: Building2 },
       { name: "Collaboraton Hub", href: "/organizations/collaboration-hub", icon: BriefcaseBusiness},
@@ -189,7 +175,7 @@ const navigationGroups = {
   datacollection: {
     label: "DATA COLLECTION",
     icon: Database,
-    roles: ["Admin", "Policymaker", "regional_executive" , "admin_coordinator", "researcher", "researcher_coordinator", "cso", "cso_coordinator", "coordinator", "mental_health_professional", "mental_health_coordinator"],
+    roles: ["Admin", "Policymaker", "Regional_Executive" , "admin_coordinator", "researcher", "researcher_coordinator", "cso", "cso_coordinator", "coordinator", "mental_health_professional", "mental_health_coordinator"],
     links: [
       { name: "Submit Report", href: "/data-collection/field-reports", icon: AlertTriangle },
       { name: "Surveys", href: "/data-collection/surveys", icon: ClipboardList },
@@ -213,7 +199,7 @@ const navigationGroups = {
   coordination: {
     label: "COUNTRY COORDINATION",
     icon: Flag,
-    roles: ["coordinator", "policymaker_coordinator", "regional_executive" , "researcher_coordinator", "mental_health_coordinator", "cso_coordinator", "donor_coordinator", "admin_coordinator", "Admin"],
+    roles: ["coordinator", "policymaker_coordinator", "Regional_Executive" , "researcher_coordinator", "mental_health_coordinator", "cso_coordinator", "donor_coordinator", "admin_coordinator", "Admin"],
     links: [
       { name: "Coordinator Dashboard", href: "/coordinators", icon: Flag },
       { name: "Field Reports", href: "/data-collection/field-reports", icon: AlertTriangle },

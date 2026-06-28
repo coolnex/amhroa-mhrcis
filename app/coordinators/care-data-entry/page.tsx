@@ -151,51 +151,97 @@ export default function CoordinatorDataEntry() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError("");
+  // In your handleSubmit function, map form data to correct column names
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setSubmitting(true);
+  setError("");
 
-    try {
-      const template = getTrackerTemplate(selectedTracker);
-      if (!template) {
-        throw new Error("Invalid tracker selected");
-      }
-
-      // Prepare data for insertion
-      const insertData = {
-        ...formData,
-        country: selectedCountry,
-        created_by: user.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        reporting_period: formData.reporting_period || new Date().toISOString().slice(0, 7), // YYYY-MM
-        reporting_date: formData.reporting_date || new Date().toISOString().split('T')[0],
-      };
-
-      console.log("📝 Inserting data:", insertData);
-
-      // Insert data directly into the tracker table
-      const { error: insertError } = await supabase
-        .from(template.tableName)
-        .insert(insertData);
-
-      if (insertError) {
-        console.error("Insert error:", insertError);
-        throw new Error(insertError.message);
-      }
-
-      setSuccess(true);
-      setTimeout(() => {
-        router.push("/coordinator");
-      }, 3000);
-    } catch (err: any) {
-      console.error("Error submitting data:", err);
-      setError(err.message || "Failed to submit data. Please try again.");
-    } finally {
-      setSubmitting(false);
+  try {
+    const template = getTrackerTemplate(selectedTracker);
+    if (!template) {
+      throw new Error("Invalid tracker selected");
     }
-  };
+
+    // Map form data to match actual column names
+    let insertData: any = {
+      country: selectedCountry,
+      created_by: user.id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Map based on tracker type
+    switch (selectedTracker) {
+      case "policy":
+        insertData = {
+          ...insertData,
+          policy_name: formData.policy_name,
+          policy_category: formData.policy_category,
+          status: formData.status,
+          progress_percentage: formData.progress_percentage,
+          start_date: formData.start_date,
+          target_completion: formData.target_completion,
+          description: formData.description,
+          challenges: formData.challenges,
+          achievements: formData.achievements,
+          // Don't include awareness_campaigns if it doesn't exist
+        };
+        break;
+
+      case "suicide":
+        insertData = {
+          ...insertData,
+          status: formData.status,
+          legislation_status: formData.legislation_status,
+          year_legislated: formData.year_legislated,
+          progress_score: formData.progress_score,
+          awareness_campaigns: formData.awareness_campaigns === "true",
+          support_services: formData.support_services === "true",
+          notes: formData.notes,
+        };
+        break;
+
+      case "workforce":
+        insertData = {
+          ...insertData,
+          year: formData.year,
+          psychiatrists_total: formData.psychiatrists_total,
+          psychologists_total: formData.psychologists_total,
+          nurses_total: formData.nurses_total,
+          social_workers_total: formData.social_workers_total,
+          peer_support_workers: formData.peer_support_workers,
+          training_programs: formData.training_programs,
+          vacancies: formData.vacancies,
+          government_spending: formData.government_spending,
+          donor_support: formData.donor_support,
+          // achievements column might not exist, so we'll skip it or add it conditionally
+        };
+        break;
+    }
+
+    console.log("📝 Inserting data:", insertData);
+
+    const { error: insertError } = await supabase
+      .from(template.tableName)
+      .insert(insertData);
+
+    if (insertError) {
+      console.error("Insert error:", insertError);
+      throw new Error(insertError.message);
+    }
+
+    setSuccess(true);
+    setTimeout(() => {
+      router.push("/coordinator");
+    }, 3000);
+  } catch (err: any) {
+    console.error("Error submitting data:", err);
+    setError(err.message || "Failed to submit data. Please try again.");
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   const renderField = (field: any, sectionId: string) => {
     const value = formData[field.id] || "";

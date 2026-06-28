@@ -455,9 +455,8 @@ export default function AdminDashboard() {
     try {
       console.log("🔄 Fetching users...");
       const { data, error } = await supabase
-        .from("users")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .rpc('admin_get_all_users');
+        
   
       if (error) {
         console.error("❌ Error fetching users:", error);
@@ -604,6 +603,7 @@ export default function AdminDashboard() {
       const originalRole = selectedUser.role;
       const combinedRole = getCoordinatorRole(originalRole);
 
+      // 1. Insert into coordinators table
       const { error: coordError } = await supabase
         .from("coordinators")
         .insert({
@@ -614,20 +614,28 @@ export default function AdminDashboard() {
           status: "Active",
           original_role: originalRole,
           combined_role: combinedRole,
+          created_at: new Date().toISOString(),
         });
 
       if (coordError) throw coordError;
 
-      const { error: userError } = await supabase
-        .from("users")
-        .update({ 
-          role: combinedRole,
+      // 2. Use the admin function to update the user role
+      const { data: functionData, error: functionError } = await supabase
+        .rpc('admin_update_user_role', {
+          target_user_id: selectedUserId,
+          new_role: combinedRole,
           assigned_country: selectedCountry,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", selectedUserId);
+          assigned_region: null
+        });
 
-      if (userError) throw userError;
+      if (functionError) {
+        console.error("❌ Function error:", functionError);
+        throw new Error(`Failed to update user role: ${functionError.message}`);
+      }
+
+      if (!functionData?.success) {
+        throw new Error(functionData?.error || "Failed to update user role");
+      }
 
       alert(`Successfully assigned ${selectedUser.full_name} as coordinator for ${selectedCountry}.`);
       
@@ -637,11 +645,12 @@ export default function AdminDashboard() {
       setSelectedCountryCode("");
       setSelectedRegions([]);
       setUserSearchTerm("");
-      fetchCoordinators();
-      fetchUsers();
-    } catch (error) {
+      await fetchCoordinators();
+      await fetchUsers();
+      
+    } catch (error: any) {
       console.error("Error assigning coordinator:", error);
-      alert("Failed to assign coordinator");
+      alert(`Failed to assign coordinator: ${error.message}`);
     } finally {
       setAssigning(false);
     }
@@ -658,6 +667,7 @@ export default function AdminDashboard() {
       const selectedUser = users.find(u => u.id === selectedRegionalUserId);
       if (!selectedUser) throw new Error("User not found");
 
+      // Update the user's role in public.users table
       const { error } = await supabase
         .from("users")
         .update({ 
@@ -668,7 +678,10 @@ export default function AdminDashboard() {
         })
         .eq("id", selectedRegionalUserId);
 
-      if (error) throw error;
+      if (error) {
+        console.error("❌ Supabase update error:", error);
+        throw new Error(`Failed to update user role: ${error.message}`);
+      }
 
       alert(`Successfully assigned ${selectedUser?.full_name} as Regional Executive for ${selectedRegion}`);
       setShowRegionalModal(false);
@@ -676,10 +689,11 @@ export default function AdminDashboard() {
       setSelectedRegion("");
       setSelectedRegionalCountry("");
       setRegionalUserSearchTerm("");
-      fetchUsers();
-    } catch (error) {
+      await fetchUsers();
+      
+    } catch (error: any) {
       console.error("Error assigning regional executive:", error);
-      alert("Failed to assign regional executive");
+      alert(`Failed to assign regional executive: ${error.message}`);
     } finally {
       setRegionalAssigning(false);
     }

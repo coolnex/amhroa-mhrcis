@@ -1,5 +1,6 @@
 // app/admin/survey-results/page.tsx
 "use client";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -23,6 +24,8 @@ import {
   Activity,
   Zap,
   ArrowLeft,
+  RefreshCw,
+  LogOut,
 } from "lucide-react";
 
 interface SurveyWithStats {
@@ -50,6 +53,7 @@ export default function AdminSurveyResultsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedSurvey, setSelectedSurvey] = useState<SurveyWithStats | null>(null);
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -57,28 +61,83 @@ export default function AdminSurveyResultsPage() {
 
   const checkAuth = async () => {
     try {
-      const userStr = localStorage.getItem("user");
-      const token = localStorage.getItem("token");
+      console.log("🔐 Admin Survey Results - Verifying security clearance...");
 
-      if (!token || !userStr) {
+      // 1. First check localStorage for user profile
+      const userStr = localStorage.getItem("user");
+      
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          if (userData.role === "Admin" && userData.status === "Approved") {
+            setUser(userData);
+            setIsAuthorized(true);
+            await fetchSurveyResults();
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          localStorage.removeItem("user");
+        }
+      }
+
+      // 2. Fetch active authentication token session from Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.log("No active session found, routing back to login page.");
         router.push("/login");
         return;
       }
 
-      const userData = JSON.parse(userStr);
-      setUser(userData);
+      // 3. Fetch structural profile record from public.users table
+      const { data: userData, error: dbError } = await supabase
+        .from("users")
+        .select("id, full_name, email, role, status, country")
+        .eq("id", session.user.id)
+        .single();
 
+      if (dbError || !userData) {
+        console.error("Profile matching session ID not found:", dbError?.message);
+        router.push("/login");
+        return;
+      }
+
+      // 4. Admin Authorization Guard Rule
       if (userData.role !== "Admin") {
+        console.warn(`🛑 Unauthorized access attempt. User role "${userData.role}" is not Admin.`);
         router.push("/dashboard");
         return;
       }
 
+      // 5. Approval Constraint Guard Rule
+      if (userData.status !== "Approved") {
+        console.log("Account is not yet marked as Approved.");
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      // 6. Cache user data in localStorage
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      setIsAuthorized(true);
+
       await fetchSurveyResults();
-    } catch (err) {
-      console.error("Auth error:", err);
+    } catch (error) {
+      console.error("Critical error encountered during security verification:", error);
       router.push("/login");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      localStorage.removeItem("user");
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
     }
   };
 
@@ -113,7 +172,7 @@ export default function AdminSurveyResultsPage() {
             .eq("survey_id", survey.id)
             .order("created_at", { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
 
           if (lastError && lastError.code !== "PGRST116") {
             console.error(`Error getting last response for survey ${survey.id}:`, lastError);
@@ -122,7 +181,6 @@ export default function AdminSurveyResultsPage() {
           // Calculate completion rate
           let completionRate = 0;
           if (count && count > 0) {
-            // Get full responses to calculate completion
             const { data: responses, error: respError } = await supabase
               .from("survey_responses")
               .select("responses")
@@ -147,7 +205,7 @@ export default function AdminSurveyResultsPage() {
             ...survey,
             response_count: count || 0,
             completion_rate: completionRate,
-            avg_time: 0, // Would need timestamps to calculate
+            avg_time: 0,
             last_response_at: lastResponse?.created_at || null,
           };
         })
@@ -193,27 +251,6 @@ export default function AdminSurveyResultsPage() {
     }
   };
 
-  const getResponseLevelIcon = (count: number) => {
-    if (count === 0) return <AlertCircle className="w-4 h-4 text-slate-400" />;
-    if (count < 10) return <Activity className="w-4 h-4 text-yellow-400" />;
-    if (count < 50) return <TrendingUp className="w-4 h-4 text-blue-400" />;
-    return <Zap className="w-4 h-4 text-emerald-400" />;
-  };
-
-  const getResponseLevelText = (count: number) => {
-    if (count === 0) return "No responses";
-    if (count < 10) return "Low responses";
-    if (count < 50) return "Moderate responses";
-    return "High responses";
-  };
-
-  const getResponseLevelColor = (count: number) => {
-    if (count === 0) return "text-slate-400";
-    if (count < 10) return "text-yellow-400";
-    if (count < 50) return "text-blue-400";
-    return "text-emerald-400";
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
@@ -225,38 +262,63 @@ export default function AdminSurveyResultsPage() {
     );
   }
 
+  if (!isAuthorized || !user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
-      <div className="px-4 md:px-8 py-6">
-        {/* Header */}
-        <div className="flex flex-wrap justify-between items-start gap-4 mb-8">
-          <div>
+      {/* Header */}
+      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
+        <div className="relative px-6 md:px-8 py-6 md:py-8">
+          <div className="flex justify-between items-center mb-4">
             <Link 
               href="/admin/surveys" 
-              className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 text-sm mb-2 transition-colors"
+              className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
-              Back to Admin
+              Back to Surveys
             </Link>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-              Survey Results Dashboard
-            </h1>
-            <p className="text-slate-400 mt-1">
-              Track and analyze all survey responses across the platform
-            </p>
-          </div>
-
-          <div className="flex gap-2">
             <button
-              onClick={fetchSurveyResults}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 text-white transition-colors flex items-center gap-2"
+              onClick={logout}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors"
             >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
+              <LogOut className="w-4 h-4" />
+              <span className="text-sm hidden sm:inline">Logout</span>
             </button>
           </div>
-        </div>
 
+          <div className="flex flex-wrap justify-between items-start gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="px-3 py-1 bg-cyan-500/20 rounded-full border border-cyan-500/30">
+                  <span className="text-cyan-300 text-xs font-mono tracking-wider">
+                    SURVEY RESULTS
+                  </span>
+                </div>
+              </div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+                Survey Results Dashboard
+              </h1>
+              <p className="text-slate-400 mt-1">
+                Track and analyze all survey responses across the platform
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={fetchSurveyResults}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 text-white transition-colors flex items-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 md:px-8 py-6">
         {/* Stats Overview */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
@@ -381,13 +443,7 @@ export default function AdminSurveyResultsPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-700">
                   <div>
                     <p className="text-slate-500 text-xs">Responses</p>
-                    <div className="flex items-center gap-1">
-                      <span className={`text-lg font-bold ${getResponseLevelColor(survey.response_count)}`}>
-                        {survey.response_count}
-                      </span>
-                      {getResponseLevelIcon(survey.response_count)}
-                    </div>
-                    <p className="text-slate-500 text-xs">{getResponseLevelText(survey.response_count)}</p>
+                    <p className="text-lg font-bold text-white">{survey.response_count}</p>
                   </div>
                   <div>
                     <p className="text-slate-500 text-xs">Completion</p>
@@ -424,33 +480,6 @@ export default function AdminSurveyResultsPage() {
                     </p>
                   </div>
                 </div>
-
-                {/* Quick Actions */}
-                <div className="flex gap-2 mt-4 pt-3 border-t border-slate-700">
-                  <Link
-                    href={`/admin/survey-results/${survey.id}`}
-                    className="flex-1 px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 rounded-lg text-cyan-400 text-sm text-center transition-colors flex items-center justify-center gap-1"
-                  >
-                    <BarChart3 className="w-3 h-3" />
-                    View Results
-                  </Link>
-                  <Link
-                    href={`/admin/survey-builder?id=${survey.id}`}
-                    className="flex-1 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm text-center transition-colors flex items-center justify-center gap-1"
-                  >
-                    <Eye className="w-3 h-3" />
-                    Edit Survey
-                  </Link>
-                  <button
-                    onClick={() => {
-                      // Quick export function
-                      alert(`Exporting ${survey.title} results...`);
-                    }}
-                    className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 rounded-lg text-emerald-400 text-sm transition-colors flex items-center gap-1"
-                  >
-                    <Download className="w-3 h-3" />
-                  </button>
-                </div>
               </div>
             ))}
           </div>
@@ -459,6 +488,3 @@ export default function AdminSurveyResultsPage() {
     </div>
   );
 }
-
-// Add missing import
-import { RefreshCw } from "lucide-react";

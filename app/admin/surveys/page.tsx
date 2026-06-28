@@ -10,6 +10,7 @@ import {
   Edit,
   Eye,
   EyeOff,
+  ArrowLeft,
   Trash2,
   Copy,
   Filter,
@@ -25,6 +26,7 @@ import {
   ChevronRight,
   Loader2,
   AlertCircle,
+  LogOut,
 } from "lucide-react";
 
 interface Survey {
@@ -48,6 +50,7 @@ export default function AdminSurveysPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -55,26 +58,83 @@ export default function AdminSurveysPage() {
 
   const checkAuth = async () => {
     try {
-      const userStr = localStorage.getItem("user");
-      const token = localStorage.getItem("token");
+      console.log("🔐 Admin Surveys - Verifying security clearance...");
 
-      if (!token || !userStr) {
+      // 1. First check localStorage for user profile
+      const userStr = localStorage.getItem("user");
+      
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          if (userData.role === "Admin" && userData.status === "Approved") {
+            setUser(userData);
+            setIsAuthorized(true);
+            await fetchSurveys();
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          localStorage.removeItem("user");
+        }
+      }
+
+      // 2. Fetch active authentication token session from Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.log("No active session found, routing back to login page.");
         router.push("/login");
         return;
       }
 
-      const userData = JSON.parse(userStr);
-      setUser(userData);
+      // 3. Fetch structural profile record from public.users table
+      const { data: userData, error: dbError } = await supabase
+        .from("users")
+        .select("id, full_name, email, role, status, country")
+        .eq("id", session.user.id)
+        .single();
 
+      if (dbError || !userData) {
+        console.error("Profile matching session ID not found:", dbError?.message);
+        router.push("/login");
+        return;
+      }
+
+      // 4. Admin Authorization Guard Rule
       if (userData.role !== "Admin") {
+        console.warn(`🛑 Unauthorized access attempt. User role "${userData.role}" is not Admin.`);
         router.push("/dashboard");
         return;
       }
 
+      // 5. Approval Constraint Guard Rule
+      if (userData.status !== "Approved") {
+        console.log("Account is not yet marked as Approved.");
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      // 6. Cache user data in localStorage
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      setIsAuthorized(true);
+
       await fetchSurveys();
-    } catch (err) {
-      console.error("Auth error:", err);
+    } catch (error) {
+      console.error("Critical error encountered during security verification:", error);
       router.push("/login");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      localStorage.removeItem("user");
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error:", error);
     }
   };
 
@@ -195,27 +255,57 @@ export default function AdminSurveysPage() {
     );
   }
 
+  if (!isAuthorized || !user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
-      <div className="px-4 md:px-8 py-6">
-        <div className="flex justify-between items-start flex-wrap gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-              Survey Management
-            </h1>
-            <p className="text-slate-400 mt-1">
-              Create and manage internal and external surveys
-            </p>
+      {/* Header */}
+      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
+        <div className="relative px-6 md:px-8 py-6 md:py-8">
+          <div className="flex justify-between items-center mb-4">
+            <Link href="/admin" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
+              <ArrowLeft className="w-4 h-4" />
+              Back to Admin
+            </Link>
+            <button
+              onClick={logout}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="text-sm hidden sm:inline">Logout</span>
+            </button>
           </div>
-          <Link
-            href="/admin/survey-builder"
-            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            New Survey
-          </Link>
-        </div>
 
+          <div className="flex justify-between items-start flex-wrap gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="px-3 py-1 bg-cyan-500/20 rounded-full border border-cyan-500/30">
+                  <span className="text-cyan-300 text-xs font-mono tracking-wider">
+                    ADMIN SURVEYS
+                  </span>
+                </div>
+              </div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+                Survey Management
+              </h1>
+              <p className="text-slate-400 mt-1">
+                Create and manage internal and external surveys
+              </p>
+            </div>
+            <Link
+              href="/admin/survey-builder"
+              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              New Survey
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 md:px-8 py-6">
         {/* Filters */}
         <div className="flex flex-wrap gap-4 mb-6">
           <div className="flex-1 min-w-[200px]">
@@ -296,12 +386,6 @@ export default function AdminSurveysPage() {
                         <Users className="w-3 h-3" />
                         {survey.response_count || 0} responses
                       </span>
-                      {survey.metadata?.targetAudience && (
-                        <span className="flex items-center gap-1">
-                          <Globe className="w-3 h-3" />
-                          {survey.metadata.targetAudience}
-                        </span>
-                      )}
                     </div>
                   </div>
                   <div className="flex gap-2 ml-4">
@@ -350,3 +434,5 @@ export default function AdminSurveysPage() {
     </div>
   );
 }
+
+// Add missing import
