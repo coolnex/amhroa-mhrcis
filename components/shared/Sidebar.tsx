@@ -470,13 +470,21 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         {!collapsed ? (
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center">
-              <Heart className="w-6 h-6 text-white" />
+            <Image
+              src="/og-image.png"
+              alt="AMHROA Logo"
+              width={48}
+              height={48}
+              className="object-contain"
+              
+              
+            />
             </div>
             <div>
               <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
                 AMHROA
               </h1>
-              <p className="text-slate-400 text-xs">Mental Health Reform Observatory</p>
+              <p className="text-slate-400 text-xs">Association of Mental Health Reform Organizations of Africa</p>
             </div>
           </div>
         ) : (

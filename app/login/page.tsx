@@ -114,6 +114,9 @@ export default function LoginPage() {
       case "cso":
         router.push("/organizations");
         break;
+      case "regional_executive":
+        router.push("/regional-executive");
+        break;
       case "coordinator":
       case "researcher_coordinator":
       case "cso_coordinator":
@@ -459,7 +462,13 @@ const handleSubmit = async (e: React.FormEvent) => {
           <div className="backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl rounded-3xl p-8">
             <div className="text-center mb-8">
               <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 flex items-center justify-center mb-4">
-                <Shield className="w-8 h-8 text-white" />
+                <Image
+                  src="/og-image.png"
+                  alt="AMHROA Logo"
+                  width={100}
+                  height={100}
+                  className="object-contain"
+                />
               </div>
               <h2 className="text-4xl font-bold text-white">Welcome Back</h2>
               <p className="text-slate-400 mt-2">Sign in to AMHROA Portal</p>

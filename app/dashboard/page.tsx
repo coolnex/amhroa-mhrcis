@@ -213,7 +213,7 @@ const roleConfig: Record<string, any> = {
     ],
   },
   Researcher: {
-    title: "Research Intelligence Hub",
+    title: "Intelligence Hub",
     description: "Continental evidence and publication system",
     rolePath: "/researcher",
     metrics: [
@@ -247,6 +247,23 @@ const roleConfig: Record<string, any> = {
     ],
   },
   Coordinator: {
+    title: "National Reporting Center",
+    description: "Reform coordination and submission management",
+    rolePath: "/coordinators",
+    metrics: [
+      { title: "Reports Due", value: 3, change: -2, icon: Clock, color: "yellow" },
+      { title: "Submitted", value: 12, change: 4, icon: CheckCircle, color: "emerald" },
+      { title: "Approval Rate", value: "92%", change: 3, icon: Award, color: "cyan" },
+      { title: "Local Partners", value: 28, change: 6, icon: Users, color: "purple" },
+    ],
+    quickLinks: [
+      { title: "Submit Report", href: "/submissions/new", description: "Upload new report", icon: FileText },
+      { title: "Reform Tracker", href: "/reform-tracking", description: "Monitor progress", icon: TrendingUp },
+      { title: "CSO Coordination", href: "/cso-coordination", description: "Partner management", icon: Users },
+      { title: "Calendar", href: "/calendar", description: "View deadlines", icon: Calendar },
+    ],
+  },
+  Regional_Executive: {
     title: "National Reporting Center",
     description: "Reform coordination and submission management",
     rolePath: "/coordinators",

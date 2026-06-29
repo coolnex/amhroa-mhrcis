@@ -317,13 +317,28 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         {!collapsed ? (
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center">
-              <Heart className="w-6 h-6 text-white" />
+            <img
+                src="/public/og-image.png"
+                alt="AMHROA Logo"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.style.display = 'none';
+                  const parent = target.parentElement;
+                  if (parent) {
+                    const fallback = document.createElement('div');
+                    fallback.className = 'w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center';
+                    fallback.innerHTML = '<svg class="w-6 h-6 text-white" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>';
+                    parent.appendChild(fallback);
+                  }
+                }}
+              />
             </div>
             <div>
               <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
                 AMHROA
               </h1>
-              <p className="text-slate-400 text-xs">Mental Health Reform Observatory</p>
+              <p className="text-slate-400 text-xs">Association of </p>
             </div>
           </div>
         ) : (
