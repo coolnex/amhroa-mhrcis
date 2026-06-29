@@ -1,94 +1,20 @@
 // app/api/heatmap/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // 1. Fetch data from countries table
-    const { data: countriesData, error: countriesError } = await supabase
-      .from("countries")
-      .select(`
-        id,
-        country_name,
-        reform_score,
-        reform_tier,
-        region,
-        sdg_score,
-        legislation_score,
-        workforce_score,
-        financing_score,
-        implementation_score,
-        law_status,
-        implementation_status,
-        priority_level,
-        budget_level,
-        funding_gap_level,
-        investment_priority,
-        donor_readiness_score,
-        population,
-        psychiatrists_per_100k,
-        sdg_3_4_score,
-        sdg_10_2_score,
-        sdg_16_3_score,
-        last_updated
-      `)
-      .order("country_name", { ascending: true });
+    // Check if we're requesting a single country
+    const { searchParams } = new URL(request.url);
+    const countryName = searchParams.get("country");
 
-    if (countriesError) {
-      console.error("Countries table error:", countriesError);
-      // Don't return yet, try the mental_health_reforms table
+    // If country parameter is provided, return single country data
+    if (countryName) {
+      return await getSingleCountry(countryName);
     }
 
-    // 2. Fetch data from mental_health_reforms table
-    const { data: reformsData, error: reformsError } = await supabase
-      .from("mental_health_reforms")
-      .select(`
-        id,
-        country_name,
-        reform_tier,
-        law_status,
-        implementation_status,
-        budget_level,
-        priority_level,
-        strategy,
-        reform_score,
-        implementation_score,
-        sdg3_score,
-        sdg10_score,
-        sdg16_score,
-        agenda2063_score,
-        funding_gap_level,
-        investment_priority,
-        estimated_investment_need,
-        donor_readiness_score,
-        created_at
-      `)
-      .order("country_name", { ascending: true });
-
-    if (reformsError) {
-      console.error("Mental health reforms table error:", reformsError);
-    }
-
-    // 3. Merge data from both tables
-    const mergedData = mergeCountryData(countriesData || [], reformsData || []);
-
-    // 4. Calculate additional metrics for the heatmap
-    const metrics = calculateMetrics(mergedData);
-
-    // 5. Get continental statistics
-    const continentalStats = getContinentalStats(mergedData);
-
-    return NextResponse.json({
-      success: true,
-      countries: mergedData,
-      metrics,
-      continental_stats: continentalStats,
-      data_sources: {
-        countries_table: countriesData?.length || 0,
-        reforms_table: reformsData?.length || 0,
-        merged_total: mergedData.length,
-      },
-    });
+    // Otherwise return all countries data
+    return await getAllCountries();
   } catch (error) {
     console.error("Error fetching heatmap data:", error);
     return NextResponse.json(
@@ -100,6 +26,133 @@ export async function GET() {
       { status: 500 }
     );
   }
+}
+
+// Function to get all countries
+async function getAllCountries() {
+  // 1. Fetch data from countries table
+  const { data: countriesData, error: countriesError } = await supabase
+    .from("countries")
+    .select(`
+      id,
+      country_name,
+      reform_score,
+      reform_tier,
+      region,
+      sdg_score,
+      legislation_score,
+      workforce_score,
+      financing_score,
+      implementation_score,
+      law_status,
+      implementation_status,
+      priority_level,
+      budget_level,
+      funding_gap_level,
+      investment_priority,
+      donor_readiness_score,
+      population,
+      psychiatrists_per_100k,
+      sdg_3_4_score,
+      sdg_10_2_score,
+      sdg_16_3_score,
+      last_updated
+    `)
+    .order("country_name", { ascending: true });
+
+  if (countriesError) {
+    console.error("Countries table error:", countriesError);
+  }
+
+  // 2. Fetch data from mental_health_reforms table
+  const { data: reformsData, error: reformsError } = await supabase
+    .from("mental_health_reforms")
+    .select(`
+      id,
+      country_name,
+      reform_tier,
+      law_status,
+      implementation_status,
+      budget_level,
+      priority_level,
+      strategy,
+      reform_score,
+      implementation_score,
+      sdg3_score,
+      sdg10_score,
+      sdg16_score,
+      agenda2063_score,
+      funding_gap_level,
+      investment_priority,
+      estimated_investment_need,
+      donor_readiness_score,
+      created_at
+    `)
+    .order("country_name", { ascending: true });
+
+  if (reformsError) {
+    console.error("Mental health reforms table error:", reformsError);
+  }
+
+  // 3. Merge data from both tables
+  const mergedData = mergeCountryData(countriesData || [], reformsData || []);
+
+  // 4. Calculate additional metrics for the heatmap
+  const metrics = calculateMetrics(mergedData);
+
+  // 5. Get continental statistics
+  const continentalStats = getContinentalStats(mergedData);
+
+  return NextResponse.json({
+    success: true,
+    countries: mergedData,
+    metrics,
+    continental_stats: continentalStats,
+    data_sources: {
+      countries_table: countriesData?.length || 0,
+      reforms_table: reformsData?.length || 0,
+      merged_total: mergedData.length,
+    },
+  });
+}
+
+// Function to get a single country
+async function getSingleCountry(countryName: string) {
+  // Fetch from both tables
+  const [countriesResult, reformsResult] = await Promise.all([
+    supabase
+      .from("countries")
+      .select("*")
+      .eq("country_name", countryName)
+      .single(),
+    supabase
+      .from("mental_health_reforms")
+      .select("*")
+      .eq("country_name", countryName)
+      .single(),
+  ]);
+
+  // Merge the data
+  const mergedData = {
+    ...(countriesResult.data || {}),
+    ...(reformsResult.data || {}),
+    data_sources: {
+      countries_table: !!countriesResult.data,
+      reforms_table: !!reformsResult.data,
+    },
+  };
+
+  if (!countriesResult.data && !reformsResult.data) {
+    return NextResponse.json(
+      { success: false, message: "Country not found" },
+      { status: 404 }
+    );
+  }
+
+  return NextResponse.json({
+    success: true,
+    country: mergedData,
+  });
 }
 
 // Helper function to merge data from both tables
@@ -234,7 +287,7 @@ function getContinentalStats(data: any[]) {
   };
 }
 
-// Optional: POST to update heatmap data for a specific country
+// POST to update heatmap data for a specific country
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -340,60 +393,6 @@ export async function POST(req: Request) {
       { 
         success: false, 
         message: "Failed to update heatmap data",
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
-  }
-}
-
-// Optional: GET a single country's detailed heatmap data
-export async function GET_COUNTRY(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const countryName = url.searchParams.get("country");
-
-    if (!countryName) {
-      return NextResponse.json(
-        { success: false, message: "Country name is required" },
-        { status: 400 }
-      );
-    }
-
-    // Fetch from both tables
-    const [countriesResult, reformsResult] = await Promise.all([
-      supabase
-        .from("countries")
-        .select("*")
-        .eq("country_name", countryName)
-        .single(),
-      supabase
-        .from("mental_health_reforms")
-        .select("*")
-        .eq("country_name", countryName)
-        .single(),
-    ]);
-
-    // Merge the data
-    const mergedData = {
-      ...(countriesResult.data || {}),
-      ...(reformsResult.data || {}),
-      data_sources: {
-        countries_table: !!countriesResult.data,
-        reforms_table: !!reformsResult.data,
-      },
-    };
-
-    return NextResponse.json({
-      success: true,
-      country: mergedData,
-    });
-  } catch (error) {
-    console.error("Error fetching country data:", error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        message: "Failed to fetch country data",
         error: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 }
