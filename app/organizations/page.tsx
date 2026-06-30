@@ -1,3 +1,4 @@
+
 // app/organizations/page.tsx
 "use client";
 
@@ -10,6 +11,7 @@ import {
   FileText,
   TrendingUp,
   Target,
+  XCircle,
   Calendar,
   Clock,
   CheckCircle,
@@ -100,6 +102,8 @@ import {
   Rocket as RocketIcon,
   Compass as CompassIcon2,
   Coffee as CoffeeIcon,
+  X,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -144,6 +148,29 @@ interface Project {
   budget: number;
   start_date: string;
   end_date: string;
+  organization_id?: string;
+}
+
+interface JoinRequest {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  status: "pending" | "approved" | "rejected";
+  message?: string;
+  created_at: string;
+}
+
+interface Report {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  created_at: string;
+  file_url?: string;
+  description?: string;
+  submitted_by?: string;
 }
 
 interface Report {
@@ -251,6 +278,40 @@ const organizationTypes = [
   "Network/Coalition",
 ];
 
+const focusAreasOptions = [
+  "Mental Health",
+  "Education",
+  "Healthcare",
+  "Economic Empowerment",
+  "Gender Equality",
+  "Human Rights",
+  "Environment",
+  "Youth Development",
+  "Community Engagement",
+  "Research",
+  "Policy Advocacy",
+  "Capacity Building",
+];
+
+const resourceTypes = [
+  "dataset",
+  "report",
+  "toolkit",
+  "training",
+  "policy",
+  "research"
+];
+
+const eventTypes = [
+  "webinar",
+  "workshop",
+  "conference",
+  "networking",
+  "training",
+  "meeting",
+  "social"
+];
+
 export default function OrganizationsDashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
@@ -286,6 +347,53 @@ export default function OrganizationsDashboardPage() {
   const [collaborationMessage, setCollaborationMessage] = useState("");
   const [partnershipType, setPartnershipType] = useState("partnership");
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Project Form State
+  const [projectForm, setProjectForm] = useState({
+    title: "",
+    description: "",
+    status: "Planning",
+    budget: 0,
+    start_date: "",
+    end_date: "",
+  });
+
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showRequestJoinModal, setShowRequestJoinModal] = useState(false);
+  const [selectedOrgToJoin, setSelectedOrgToJoin] = useState<Organization | null>(null);
+  const [joinMessage, setJoinMessage] = useState("");
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportForm, setReportForm] = useState({
+    title: "",
+    description: "",
+    type: "",
+    file_url: "",
+  });
+  // Resource Form State
+  const [resourceForm, setResourceForm] = useState({
+    title: "",
+    description: "",
+    type: "report",
+    url: "",
+    access_level: "public",
+    tags: "",
+  });
+
+  // Event Form State
+  const [eventForm, setEventForm] = useState({
+    title: "",
+    description: "",
+    type: "webinar",
+    start_date: "",
+    end_date: "",
+    location: "",
+    virtual_link: "",
+    capacity: 100,
+    focus_areas: [] as string[],
+  });
 
   useEffect(() => {
     checkAuth();
@@ -294,7 +402,6 @@ export default function OrganizationsDashboardPage() {
   const checkAuth = async () => {
     setIsLoading(true);
     try {
-      // First check localStorage
       const userStr = localStorage.getItem("user");
       
       if (userStr) {
@@ -310,7 +417,6 @@ export default function OrganizationsDashboardPage() {
         }
       }
 
-      // Check Supabase session
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError || !session) {
@@ -318,7 +424,6 @@ export default function OrganizationsDashboardPage() {
         return;
       }
 
-      // Get user profile
       const { data: profile, error: profileError } = await supabase
         .from("users")
         .select("*")
@@ -330,7 +435,6 @@ export default function OrganizationsDashboardPage() {
         return;
       }
 
-      // Cache in localStorage
       localStorage.setItem("user", JSON.stringify(profile));
       setUser(profile);
       setIsLoading(false);
@@ -363,7 +467,6 @@ export default function OrganizationsDashboardPage() {
       let orgsData: any[] = [];
       let memberOrgIds = new Set<string>();
 
-      // 1. ADMIN ROLE - sees all approved organizations
       if (userData.role === "Admin") {
         const { data, error } = await supabase
           .from("organizations")
@@ -373,9 +476,7 @@ export default function OrganizationsDashboardPage() {
 
         if (error) throw error;
         orgsData = data || [];
-      }
-      // 2. COORDINATOR ROLES - sees organizations in their country
-      else if (isCoordinator) {
+      } else if (isCoordinator) {
         const userCountry = userData.assigned_country || userData.country;
         
         if (!userCountry) {
@@ -394,10 +495,7 @@ export default function OrganizationsDashboardPage() {
 
         if (error) throw error;
         orgsData = data || [];
-      }
-      // 3. REGULAR USERS - sees organizations they created or are members of
-      else {
-        // Get user's memberships
+      } else {
         const { data: memberOrgs, error: memberError } = await supabase
           .from("organization_members")
           .select("organization_id")
@@ -412,7 +510,6 @@ export default function OrganizationsDashboardPage() {
         memberOrgIds = new Set(orgIds);
 
         if (orgIds.length > 0) {
-          // Organizations where user is a member OR creator
           const idsString = orgIds.map(id => `"${id}"`).join(',');
           const { data, error } = await supabase
             .from("organizations")
@@ -424,7 +521,6 @@ export default function OrganizationsDashboardPage() {
           if (error) throw error;
           orgsData = data || [];
         } else {
-          // Only organizations created by the user
           const { data, error } = await supabase
             .from("organizations")
             .select("*")
@@ -437,7 +533,6 @@ export default function OrganizationsDashboardPage() {
         }
       }
 
-      // Get creator names for all organizations
       const orgsWithCreators = await Promise.all(
         orgsData.map(async (org) => {
           let creatorName = "Unknown";
@@ -473,7 +568,6 @@ export default function OrganizationsDashboardPage() {
 
       setOrganizations(orgsWithCreators);
 
-      // Auto-select if only one organization
       if (orgsWithCreators.length === 1) {
         setSelectedOrg(orgsWithCreators[0]);
         setViewMode("detail");
@@ -495,22 +589,40 @@ export default function OrganizationsDashboardPage() {
     if (!orgId) return;
 
     try {
-      // Fetch team members
+      await Promise.all([
+        fetchTeamMembers(orgId),
+        fetchProjects(orgId),
+        fetchCollaborations(orgId),
+        fetchCollaborationRequests(orgId),
+        fetchSharedResources(orgId),
+        fetchEvents(orgId),
+        fetchProjectCollaborations(orgId),
+        fetchJoinRequests(orgId),
+      ]);
+
+    } catch (error) {
+      console.error("Error fetching organization details:", error);
+      setError("Failed to load organization details");
+    }
+  };
+
+  const fetchTeamMembers = async (orgId: string) => {
+    try {
       const { data: membersData, error: membersError } = await supabase
         .from("organization_members")
         .select("*")
         .eq("organization_id", orgId);
 
       if (membersError) {
-        console.error("Error fetching members:", membersError);
+        console.warn("Members table not found:", membersError);
+        setTeamMembers([]);
+        return;
       }
 
       if (membersData && membersData.length > 0) {
-        // Get user details for each member
         const userIds = membersData.map(m => m.user_id).filter(id => id);
-        
         let usersMap: Record<string, any> = {};
-        
+
         if (userIds.length > 0) {
           const { data: usersData, error: usersError } = await supabase
             .from("users")
@@ -536,50 +648,28 @@ export default function OrganizationsDashboardPage() {
       } else {
         setTeamMembers([]);
       }
-
-      // Fetch projects
-      try {
-        const { data: projectsData, error: projectsError } = await supabase
-          .from("organization_projects")
-          .select("*")
-          .eq("organization_id", orgId)
-          .order("created_at", { ascending: false });
-
-        if (!projectsError && projectsData && projectsData.length > 0) {
-          setProjects(projectsData);
-        } else {
-          // Fallback to mock data
-          setProjects([
-            { id: "1", title: "Community Mental Health Outreach", description: "Reaching underserved communities", status: "Active", budget: 50000, start_date: "2024-01-15", end_date: "2024-12-31" },
-            { id: "2", title: "Workforce Training Program", description: "Training community health workers", status: "Planning", budget: 75000, start_date: "2024-06-01", end_date: "2025-05-31" },
-          ]);
-        }
-      } catch (e) {
-        // Fallback to mock data
-        setProjects([
-          { id: "1", title: "Community Mental Health Outreach", description: "Reaching underserved communities", status: "Active", budget: 50000, start_date: "2024-01-15", end_date: "2024-12-31" },
-          { id: "2", title: "Workforce Training Program", description: "Training community health workers", status: "Planning", budget: 75000, start_date: "2024-06-01", end_date: "2025-05-31" },
-        ]);
-      }
-
-      // Fetch reports (mock data for now)
-      setReports([
-        { id: "1", title: "Q1 2024 Impact Report", type: "Quarterly", status: "Published", created_at: "2024-04-15" },
-        { id: "2", title: "Annual Report 2023", type: "Annual", status: "Published", created_at: "2024-01-20" },
-      ]);
-
-      // Fetch collaboration data
-      await Promise.all([
-        fetchCollaborations(orgId),
-        fetchCollaborationRequests(orgId),
-        fetchSharedResources(orgId),
-        fetchEvents(orgId),
-        fetchProjectCollaborations(orgId),
-      ]);
-
     } catch (error) {
-      console.error("Error fetching organization details:", error);
-      setError("Failed to load organization details");
+      console.error("Error fetching team members:", error);
+      setTeamMembers([]);
+    }
+  };
+
+  const fetchProjects = async (orgId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("organization_projects")
+        .select("*")
+        .eq("organization_id", orgId)
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        setProjects(data);
+      } else {
+        setProjects([]);
+      }
+    } catch (error) {
+      console.error("Error fetching projects:", error);
+      setProjects([]);
     }
   };
 
@@ -628,7 +718,7 @@ export default function OrganizationsDashboardPage() {
       const { data, error } = await supabase
         .from("shared_resources")
         .select("*")
-        .or(`organization_id.eq.${orgId},access_level.eq.public`);
+        .eq("organization_id", orgId);
 
       if (error) {
         console.warn("Shared resources table not found:", error);
@@ -648,7 +738,7 @@ export default function OrganizationsDashboardPage() {
         .from("events")
         .select("*")
         .eq("organization_id", orgId)
-        .or(`status.eq.upcoming,status.eq.ongoing`);
+        .order("start_date", { ascending: true });
 
       if (error) {
         console.warn("Events table not found:", error);
@@ -681,11 +771,248 @@ export default function OrganizationsDashboardPage() {
     }
   };
 
+  const fetchJoinRequests = async (orgId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("organization_join_requests")
+        .select("*")
+        .eq("organization_id", orgId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+  
+      if (error) {
+        console.warn("Join requests table not found:", error);
+        setJoinRequests([]);
+        return;
+      }
+      setJoinRequests(data || []);
+    } catch (error) {
+      console.error("Error fetching join requests:", error);
+      setJoinRequests([]);
+    }
+  };
+  
+  // ============ REQUEST TO JOIN ORGANIZATION ============
+  
+  const handleRequestToJoin = async () => {
+    if (!user) {
+      alert("Please login to request to join an organization");
+      return;
+    }
+  
+    if (!selectedOrgToJoin) {
+      alert("No organization selected");
+      return;
+    }
+  
+    setSubmitting(true);
+    try {
+      // Check if already a member
+      const { data: existingMember, error: checkError } = await supabase
+        .from("organization_members")
+        .select("id")
+        .eq("organization_id", selectedOrgToJoin.id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+  
+      if (checkError) {
+        console.error("Error checking membership:", checkError);
+      }
+  
+      if (existingMember) {
+        alert("You are already a member of this organization!");
+        setSubmitting(false);
+        return;
+      }
+  
+      // Check if already requested
+      const { data: existingRequest, error: requestError } = await supabase
+        .from("organization_join_requests")
+        .select("id")
+        .eq("organization_id", selectedOrgToJoin.id)
+        .eq("user_id", user.id)
+        .eq("status", "pending")
+        .maybeSingle();
+  
+      if (requestError) {
+        console.error("Error checking request:", requestError);
+      }
+  
+      if (existingRequest) {
+        alert("You have already requested to join this organization. Please wait for approval.");
+        setSubmitting(false);
+        return;
+      }
+  
+      const { error } = await supabase
+        .from("organization_join_requests")
+        .insert({
+          organization_id: selectedOrgToJoin.id,
+          user_id: user.id,
+          user_name: user.full_name || user.email,
+          user_email: user.email,
+          message: joinMessage || null,
+          status: "pending",
+          created_at: new Date().toISOString(),
+        });
+  
+      if (error) throw error;
+  
+      setSuccessMessage(`Join request sent to ${selectedOrgToJoin.name}!`);
+      setShowRequestJoinModal(false);
+      setSelectedOrgToJoin(null);
+      setJoinMessage("");
+      
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error) {
+      console.error("Error requesting to join:", error);
+      alert("Failed to send join request");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  
+  // ============ HANDLE JOIN REQUEST RESPONSE ============
+  
+  const handleJoinRequestResponse = async (requestId: string, accept: boolean) => {
+    try {
+      // Get the request details first
+      const { data: request, error: fetchError } = await supabase
+        .from("organization_join_requests")
+        .select("*")
+        .eq("id", requestId)
+        .single();
+  
+      if (fetchError) throw fetchError;
+  
+      if (accept) {
+        // Add user to organization members
+        const { error: memberError } = await supabase
+          .from("organization_members")
+          .insert({
+            organization_id: request.organization_id,
+            user_id: request.user_id,
+            role: "Member",
+            joined_at: new Date().toISOString(),
+          });
+  
+        if (memberError) throw memberError;
+      }
+  
+      // Update the join request status
+      const { error: updateError } = await supabase
+        .from("organization_join_requests")
+        .update({
+          status: accept ? "approved" : "rejected",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", requestId);
+  
+      if (updateError) throw updateError;
+  
+      setSuccessMessage(accept ? "User added to organization successfully!" : "Join request declined.");
+      await fetchJoinRequests(selectedOrg?.id || "");
+      await fetchTeamMembers(selectedOrg?.id || "");
+      
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error) {
+      console.error("Error processing join request:", error);
+      alert("Failed to process join request");
+    }
+  };
+  
+  // ============ CREATE REPORT ============
+  
+  const handleCreateReport = async () => {
+    if (!reportForm.title) {
+      alert("Please enter a report title");
+      return;
+    }
+  
+    if (!selectedOrg) {
+      alert("No organization selected");
+      return;
+    }
+  
+    setSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from("reports")
+        .insert({
+          title: reportForm.title,
+          description: reportForm.description,
+          report_type: reportForm.type,
+          country: selectedOrg.country,
+          file_url: reportForm.file_url || null,
+          submitted_by: user.id,
+          status: "Pending",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+  
+      if (error) throw error;
+  
+      setSuccessMessage("Report submitted successfully!");
+      setShowReportModal(false);
+      setReportForm({
+        title: "",
+        description: "",
+        type: "",
+        file_url: "",
+      });
+      await fetchOrganizationDetails(selectedOrg.id);
+      
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error) {
+      console.error("Error creating report:", error);
+      alert("Failed to create report");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  
+  // ============ SEARCH ORGANIZATIONS TO JOIN ============
+  
+  const searchOrganizationsToJoin = async (searchTerm: string) => {
+    if (!searchTerm.trim()) {
+      return;
+    }
+  
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("organizations")
+        .select("*")
+        .eq("status", "Approved")
+        .ilike("name", `%${searchTerm}%`)
+        .limit(10);
+  
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        // Show results and let user select one
+        const org = data[0]; // For simplicity, auto-select first match
+        setSelectedOrgToJoin(org);
+        setShowRequestJoinModal(true);
+      } else {
+        alert("No organizations found matching your search. Try a different search term.");
+      }
+    } catch (error) {
+      console.error("Error searching organizations:", error);
+      alert("Failed to search organizations");
+    } finally {
+      setLoading(false);
+    }
+  };
+  // ============ HANDLERS ============
+
   const handleSelectOrganization = async (org: Organization) => {
     setSelectedOrg(org);
     setViewMode("detail");
     await fetchOrganizationDetails(org.id);
   };
+
+  // ============ ADD MEMBER ============
 
   const handleInviteMember = async () => {
     if (!newMemberEmail) {
@@ -693,14 +1020,25 @@ export default function OrganizationsDashboardPage() {
       return;
     }
 
+    if (!selectedOrg) {
+      alert("No organization selected");
+      return;
+    }
+
     setInviting(true);
     try {
-      // First, check if user exists
-      const { data: existingUser } = await supabase
+      const { data: existingUser, error: userError } = await supabase
         .from("users")
         .select("id, full_name, email")
         .eq("email", newMemberEmail)
-        .single();
+        .maybeSingle();
+
+      if (userError) {
+        console.error("Error checking user:", userError);
+        alert("Error checking user. Please try again.");
+        setInviting(false);
+        return;
+      }
 
       if (!existingUser) {
         alert("User not found. Please ask them to register first.");
@@ -708,25 +1046,47 @@ export default function OrganizationsDashboardPage() {
         return;
       }
 
-      // Add to organization members
-      const { error } = await supabase
+      // Check if already a member
+      const { data: existingMember, error: checkError } = await supabase
+        .from("organization_members")
+        .select("id")
+        .eq("organization_id", selectedOrg.id)
+        .eq("user_id", existingUser.id)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error("Error checking membership:", checkError);
+      }
+
+      if (existingMember) {
+        alert(`${existingUser.full_name} is already a member of this organization.`);
+        setInviting(false);
+        return;
+      }
+
+      const { error: insertError } = await supabase
         .from("organization_members")
         .insert({
-          organization_id: selectedOrg?.id,
+          organization_id: selectedOrg.id,
           user_id: existingUser.id,
           role: newMemberRole,
           joined_at: new Date().toISOString(),
         });
 
-      if (error) throw error;
+      if (insertError) {
+        console.error("Error adding member:", insertError);
+        alert(`Failed to add member: ${insertError.message}`);
+        setInviting(false);
+        return;
+      }
 
-      alert(`Invitation sent to ${newMemberEmail}`);
+      setSuccessMessage(`Successfully added ${existingUser.full_name} to the team!`);
       setShowAddMember(false);
       setNewMemberEmail("");
       setNewMemberRole("Member");
-      if (selectedOrg) {
-        await fetchOrganizationDetails(selectedOrg.id);
-      }
+      await fetchTeamMembers(selectedOrg.id);
+      
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error) {
       console.error("Error inviting member:", error);
       alert("Failed to invite member");
@@ -735,57 +1095,264 @@ export default function OrganizationsDashboardPage() {
     }
   };
 
+  // ============ CREATE PROJECT ============
+
+  const handleCreateProject = async () => {
+    if (!projectForm.title) {
+      alert("Please enter a project title");
+      return;
+    }
+
+    if (!selectedOrg) {
+      alert("No organization selected");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const { data, error } = await supabase
+        .from("organization_projects")
+        .insert({
+          title: projectForm.title,
+          description: projectForm.description,
+          status: projectForm.status,
+          budget: projectForm.budget,
+          start_date: projectForm.start_date || null,
+          end_date: projectForm.end_date || null,
+          organization_id: selectedOrg.id,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select();
+
+      if (error) {
+        console.error("Error creating project:", error);
+        alert(`Failed to create project: ${error.message}`);
+        setSubmitting(false);
+        return;
+      }
+
+      setSuccessMessage("Project created successfully!");
+      setShowCreateProject(false);
+      setProjectForm({
+        title: "",
+        description: "",
+        status: "Planning",
+        budget: 0,
+        start_date: "",
+        end_date: "",
+      });
+      await fetchProjects(selectedOrg.id);
+      
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error) {
+      console.error("Error creating project:", error);
+      alert("Failed to create project");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ============ SHARE RESOURCE ============
+
+  const handleShareResource = async () => {
+    if (!resourceForm.title) {
+      alert("Please enter a resource title");
+      return;
+    }
+
+    if (!selectedOrg) {
+      alert("No organization selected");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const { data, error } = await supabase
+        .from("shared_resources")
+        .insert({
+          title: resourceForm.title,
+          description: resourceForm.description,
+          type: resourceForm.type,
+          organization_id: selectedOrg.id,
+          organization_name: selectedOrg.name,
+          url: resourceForm.url || null,
+          access_level: resourceForm.access_level,
+          tags: resourceForm.tags ? resourceForm.tags.split(',').map(t => t.trim()) : [],
+          views: 0,
+          downloads: 0,
+          created_at: new Date().toISOString(),
+        })
+        .select();
+
+      if (error) {
+        console.error("Error sharing resource:", error);
+        alert(`Failed to share resource: ${error.message}`);
+        setSubmitting(false);
+        return;
+      }
+
+      setSuccessMessage("Resource shared successfully!");
+      setShowResourceModal(false);
+      setResourceForm({
+        title: "",
+        description: "",
+        type: "report",
+        url: "",
+        access_level: "public",
+        tags: "",
+      });
+      await fetchSharedResources(selectedOrg.id);
+      
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error) {
+      console.error("Error sharing resource:", error);
+      alert("Failed to share resource");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ============ CREATE EVENT ============
+
+  const handleCreateEvent = async () => {
+    if (!eventForm.title || !eventForm.start_date || !eventForm.end_date) {
+      alert("Please fill in all required fields (Title, Start Date, End Date)");
+      return;
+    }
+
+    if (!selectedOrg) {
+      alert("No organization selected");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const { data, error } = await supabase
+        .from("events")
+        .insert({
+          title: eventForm.title,
+          description: eventForm.description,
+          type: eventForm.type,
+          organization_id: selectedOrg.id,
+          organization_name: selectedOrg.name,
+          start_date: new Date(eventForm.start_date).toISOString(),
+          end_date: new Date(eventForm.end_date).toISOString(),
+          location: eventForm.location || null,
+          virtual_link: eventForm.virtual_link || null,
+          capacity: eventForm.capacity || 100,
+          registered: 0,
+          status: new Date(eventForm.start_date) > new Date() ? "upcoming" : "ongoing",
+          focus_areas: eventForm.focus_areas || [],
+          created_at: new Date().toISOString(),
+        })
+        .select();
+
+      if (error) {
+        console.error("Error creating event:", error);
+        alert(`Failed to create event: ${error.message}`);
+        setSubmitting(false);
+        return;
+      }
+
+      setSuccessMessage("Event created successfully!");
+      setShowEventModal(false);
+      setEventForm({
+        title: "",
+        description: "",
+        type: "webinar",
+        start_date: "",
+        end_date: "",
+        location: "",
+        virtual_link: "",
+        capacity: 100,
+        focus_areas: [],
+      });
+      await fetchEvents(selectedOrg.id);
+      
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error) {
+      console.error("Error creating event:", error);
+      alert("Failed to create event");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ============ SEND COLLABORATION REQUEST ============
+
   const handleSendCollaborationRequest = async () => {
     if (!selectedPartner || !collaborationMessage) {
       alert("Please select a partner organization and enter a message");
       return;
     }
 
+    if (!selectedOrg) {
+      alert("No organization selected");
+      return;
+    }
+
+    setSubmitting(true);
     try {
       const { error } = await supabase
         .from("collaboration_requests")
         .insert({
-          from_organization_id: selectedOrg?.id,
+          from_organization_id: selectedOrg.id,
           to_organization_id: selectedPartner,
           message: collaborationMessage,
           partnership_type: partnershipType,
           status: "pending",
-          focus_areas: selectedOrg?.focus_areas || [],
+          focus_areas: selectedOrg.focus_areas || [],
           contact_email: user?.email,
           contact_name: user?.full_name,
+          created_at: new Date().toISOString(),
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error sending collaboration request:", error);
+        alert(`Failed to send request: ${error.message}`);
+        setSubmitting(false);
+        return;
+      }
 
-      alert("Collaboration request sent successfully!");
+      setSuccessMessage("Collaboration request sent successfully!");
       setShowCollaborationModal(false);
       setCollaborationMessage("");
       setSelectedPartner("");
-      await fetchCollaborationRequests(selectedOrg?.id || "");
+      await fetchCollaborationRequests(selectedOrg.id);
+      
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error) {
       console.error("Error sending collaboration request:", error);
       alert("Failed to send collaboration request");
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  // ============ RESPOND TO COLLABORATION REQUEST ============
 
   const handleRespondToRequest = async (requestId: string, accept: boolean) => {
     try {
       const { error } = await supabase
         .from("collaboration_requests")
-        .update({ status: accept ? "accepted" : "rejected" })
+        .update({ 
+          status: accept ? "accepted" : "rejected",
+          updated_at: new Date().toISOString()
+        })
         .eq("id", requestId);
 
       if (error) throw error;
 
       if (accept) {
-        // Create collaboration record
         const request = collaborationRequests.find(r => r.id === requestId);
-        if (request) {
+        if (request && selectedOrg) {
           const { error: collabError } = await supabase
             .from("collaborations")
             .insert({
-              organization_id: request.to_organization_id,
+              organization_id: selectedOrg.id,
               partner_organization_id: request.from_organization_id,
+              partner_organization_name: request.from_organization_name,
               type: request.partnership_type,
               status: "active",
               start_date: new Date().toISOString(),
@@ -793,6 +1360,8 @@ export default function OrganizationsDashboardPage() {
               focus_areas: request.focus_areas,
               contact_person_id: user?.id,
               contact_person_name: user?.full_name,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
             });
 
           if (collabError) throw collabError;
@@ -802,32 +1371,72 @@ export default function OrganizationsDashboardPage() {
       await fetchCollaborationRequests(selectedOrg?.id || "");
       await fetchCollaborations(selectedOrg?.id || "");
       
-      alert(accept ? "Collaboration request accepted!" : "Collaboration request declined.");
+      setSuccessMessage(accept ? "Collaboration request accepted!" : "Collaboration request declined.");
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error) {
       console.error("Error responding to request:", error);
       alert("Failed to process request");
     }
   };
 
+  // ============ REGISTER FOR EVENT ============
+
   const handleRegisterForEvent = async (eventId: string) => {
+    if (!user) {
+      alert("Please login to register for events");
+      return;
+    }
+
     try {
+      // Check if already registered
+      const { data: existing, error: checkError } = await supabase
+        .from("event_registrations")
+        .select("id")
+        .eq("event_id", eventId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error("Error checking registration:", checkError);
+      }
+
+      if (existing) {
+        alert("You are already registered for this event!");
+        return;
+      }
+
       const { error } = await supabase
         .from("event_registrations")
         .insert({
           event_id: eventId,
-          user_id: user?.id,
+          user_id: user.id,
           organization_id: selectedOrg?.id,
           registered_at: new Date().toISOString(),
         });
 
       if (error) throw error;
-      alert("Successfully registered for the event!");
+      
+      // Update registered count
+      const event = events.find(e => e.id === eventId);
+      if (event) {
+        const { error: updateError } = await supabase
+          .from("events")
+          .update({ registered: (event.registered || 0) + 1 })
+          .eq("id", eventId);
+
+        if (updateError) throw updateError;
+      }
+
+      setSuccessMessage("Successfully registered for the event!");
       await fetchEvents(selectedOrg?.id || "");
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error) {
       console.error("Error registering for event:", error);
       alert("Failed to register for event");
     }
   };
+
+  // ============ HELPERS ============
 
   const getOrganizationTypeIcon = (type: string) => {
     if (type?.includes("NGO")) return <Heart className="w-5 h-5" />;
@@ -847,9 +1456,11 @@ export default function OrganizationsDashboardPage() {
     switch (status) {
       case "Active":
       case "Published":
+      case "upcoming":
         return "bg-emerald-500/20 text-emerald-400";
       case "Planning":
       case "Draft":
+      case "ongoing":
         return "bg-yellow-500/20 text-yellow-400";
       case "Completed":
         return "bg-blue-500/20 text-blue-400";
@@ -1112,6 +1723,40 @@ export default function OrganizationsDashboardPage() {
                     </select>
                   </div>
 
+                  {/* Search for Organization to Join */}
+                  <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 mb-6">
+                    <h3 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-cyan-400" />
+                      Find an Organization to Join
+                    </h3>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Search for organizations by name..."
+                        className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                        onKeyPress={(e) => {
+                          if (e.key === "Enter") {
+                            searchOrganizationsToJoin((e.target as HTMLInputElement).value);
+                          }
+                        }}
+                        id="orgSearchInput"
+                      />
+                      <button
+                        onClick={() => {
+                          const input = document.getElementById("orgSearchInput") as HTMLInputElement;
+                          if (input) searchOrganizationsToJoin(input.value);
+                        }}
+                        className="px-6 py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors flex items-center gap-2"
+                      >
+                        <Search className="w-4 h-4" />
+                        Search
+                      </button>
+                    </div>
+                    <p className="text-slate-400 text-sm mt-2">
+                      Search for an organization by name to request membership.
+                    </p>
+                  </div>
+
                   {/* Organization Cards */}
                   {filteredOrganizations.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1210,17 +1855,73 @@ export default function OrganizationsDashboardPage() {
                           <p className="text-slate-400">{selectedOrg.type}</p>
                           <p className="text-slate-400 text-sm mt-2 max-w-2xl">{selectedOrg.description}</p>
                         </div>
-                        {canEdit() && (
-                          <button
-                            onClick={() => router.push(`/organizations/${selectedOrg.id}/edit`)}
-                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors flex items-center gap-2"
-                          >
-                            <Edit className="w-4 h-4" />
-                            Edit Organization
-                          </button>
-                        )}
+                        <div className="flex flex-wrap gap-2">
+                          {canEdit() && (
+                            <button
+                              onClick={() => router.push(`/organizations/${selectedOrg.id}/edit`)}
+                              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors flex items-center gap-2"
+                            >
+                              <Edit className="w-4 h-4" />
+                              Edit Organization
+                            </button>
+                          )}
+                          {!selectedOrg.is_member && user && (
+                            <button
+                              onClick={() => {
+                                setSelectedOrgToJoin(selectedOrg);
+                                setShowRequestJoinModal(true);
+                              }}
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-xl text-white transition-colors flex items-center gap-2"
+                            >
+                              <UserPlus className="w-4 h-4" />
+                              Request to Join
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
+
+                    {/* Join Requests Section */}
+                    {canEdit() && joinRequests.length > 0 && (
+                      <div className="bg-yellow-500/10 rounded-2xl border border-yellow-500/20 p-6 mb-6">
+                        <div className="flex items-center gap-2 mb-4">
+                          <BellRing className="w-5 h-5 text-yellow-400" />
+                          <h3 className="text-white font-semibold text-lg">Pending Join Requests ({joinRequests.length})</h3>
+                        </div>
+                        <div className="space-y-3">
+                          {joinRequests.map((request) => (
+                            <div key={request.id} className="bg-slate-700/30 rounded-xl p-4 flex flex-wrap justify-between items-center gap-4">
+                              <div>
+                                <p className="text-white font-medium">{request.user_name}</p>
+                                <p className="text-slate-400 text-sm">{request.user_email}</p>
+                                {request.message && (
+                                  <p className="text-slate-400 text-xs mt-1">"{request.message}"</p>
+                                )}
+                                <p className="text-slate-500 text-xs mt-1">
+                                  Requested: {new Date(request.created_at).toLocaleDateString()}
+                                </p>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleJoinRequestResponse(request.id, true)}
+                                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-white text-sm transition-colors flex items-center gap-1"
+                                >
+                                  <CheckCircle className="w-4 h-4" />
+                                  Accept
+                                </button>
+                                <button
+                                  onClick={() => handleJoinRequestResponse(request.id, false)}
+                                  className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white text-sm transition-colors flex items-center gap-1"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                  Decline
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               )}
@@ -1638,6 +2339,13 @@ export default function OrganizationsDashboardPage() {
                 <FileText className="w-5 h-5 text-cyan-400" />
                 Reports & Publications
               </h3>
+              <button
+                onClick={() => setShowReportModal(true)}
+                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Submit Report
+              </button>
               <div className="space-y-3">
                 {reports.map((report) => (
                   <div key={report.id} className="bg-slate-700/30 rounded-xl p-3 flex justify-between items-center">
@@ -1676,137 +2384,575 @@ export default function OrganizationsDashboardPage() {
           )}
         </div>
 
-        {/* Collaboration Modal */}
-        {showCollaborationModal && selectedOrg && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowCollaborationModal(false)}>
-            <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="p-6 border-b border-slate-700">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                    <Handshake className="w-6 h-6 text-cyan-400" />
-                    Request Collaboration
-                  </h2>
-                  <button onClick={() => setShowCollaborationModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
-                </div>
-              </div>
-              <div className="p-6 space-y-6">
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Partner Organization *</label>
-                  <select
-                    value={selectedPartner}
-                    onChange={(e) => setSelectedPartner(e.target.value)}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                  >
-                    <option value="">Select an organization</option>
-                    {getPartnerOptions().map(org => (
-                      <option key={org.value} value={org.value}>{org.label}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Type of Collaboration *</label>
-                  <select
-                    value={partnershipType}
-                    onChange={(e) => setPartnershipType(e.target.value)}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                  >
-                    <option value="partnership">Partnership</option>
-                    <option value="affiliation">Affiliation</option>
-                    <option value="coalition">Coalition</option>
-                    <option value="project">Joint Project</option>
-                    <option value="network">Network</option>
-                    <option value="mentorship">Mentorship</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Message *</label>
-                  <textarea
-                    value={collaborationMessage}
-                    onChange={(e) => setCollaborationMessage(e.target.value)}
-                    rows={4}
-                    placeholder="Describe why you want to collaborate and what you hope to achieve..."
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none"
-                  />
-                </div>
-
-                <button
-                  onClick={handleSendCollaborationRequest}
-                  className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2"
-                >
-                  <Send className="w-4 h-4" />
-                  Send Collaboration Request
-                </button>
+        {/* ============ ADD MEMBER MODAL ============ */}
+      {showAddMember && selectedOrg && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowAddMember(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <UserPlus className="w-6 h-6 text-cyan-400" />
+                  Add Team Member
+                </h2>
+                <button onClick={() => setShowAddMember(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
               </div>
             </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Email Address *</label>
+                <input
+                  type="email"
+                  value={newMemberEmail}
+                  onChange={(e) => setNewMemberEmail(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="member@example.com"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Role</label>
+                <select
+                  value={newMemberRole}
+                  onChange={(e) => setNewMemberRole(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                >
+                  <option value="Member">Member</option>
+                  <option value="Manager">Manager</option>
+                  <option value="Admin">Admin</option>
+                </select>
+              </div>
+              <button
+                onClick={handleInviteMember}
+                disabled={inviting}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {inviting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Send Invitation
+                  </>
+                )}
+              </button>
+            </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Share Resource Modal */}
-        {showResourceModal && selectedOrg && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowResourceModal(false)}>
-            <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="p-6 border-b border-slate-700">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                    <Upload className="w-6 h-6 text-cyan-400" />
-                    Share Resource
-                  </h2>
-                  <button onClick={() => setShowResourceModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+      {/* Request to Join Modal */}
+      {showRequestJoinModal && selectedOrgToJoin && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowRequestJoinModal(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <UserPlus className="w-6 h-6 text-cyan-400" />
+                  Request to Join
+                </h2>
+                <button onClick={() => setShowRequestJoinModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <p className="text-white font-medium">{selectedOrgToJoin.name}</p>
+                <p className="text-slate-400 text-sm">{selectedOrgToJoin.type}</p>
+                <p className="text-slate-400 text-sm">{selectedOrgToJoin.country}</p>
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Message (Optional)</label>
+                <textarea
+                  value={joinMessage}
+                  onChange={(e) => setJoinMessage(e.target.value)}
+                  rows={3}
+                  placeholder="Why do you want to join this organization?"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+              <button
+                onClick={handleRequestToJoin}
+                disabled={submitting}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {submitting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Send Request
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Modal */}
+      {showReportModal && selectedOrg && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowReportModal(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <FileText className="w-6 h-6 text-cyan-400" />
+                  Submit Report
+                </h2>
+                <button onClick={() => setShowReportModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Report Title *</label>
+                <input
+                  type="text"
+                  value={reportForm.title}
+                  onChange={(e) => setReportForm({ ...reportForm, title: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="Enter report title"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Description</label>
+                <textarea
+                  value={reportForm.description}
+                  onChange={(e) => setReportForm({ ...reportForm, description: e.target.value })}
+                  rows={3}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
+                  placeholder="Describe the report..."
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Report Type *</label>
+                  <select
+                    value={reportForm.type}
+                    onChange={(e) => setReportForm({ ...reportForm, type: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  >
+                    <option value="">Select Type</option>
+                    <option value="Research Paper">Research Paper</option>
+                    <option value="Policy Brief">Policy Brief</option>
+                    <option value="Case Study">Case Study</option>
+                    <option value="Annual Report">Annual Report</option>
+                    <option value="Assessment Report">Assessment Report</option>
+                    <option value="Evaluation Report">Evaluation Report</option>
+                    <option value="Strategic Plan">Strategic Plan</option>
+                    <option value="Technical Report">Technical Report</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">File URL</label>
+                  <input
+                    type="url"
+                    value={reportForm.file_url}
+                    onChange={(e) => setReportForm({ ...reportForm, file_url: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                    placeholder="https://example.com/report.pdf"
+                  />
                 </div>
               </div>
-              <div className="p-6 space-y-4">
+              <button
+                onClick={handleCreateReport}
+                disabled={submitting}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {submitting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Submit Report
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============ CREATE PROJECT MODAL ============ */}
+      {showCreateProject && selectedOrg && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowCreateProject(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <Target className="w-6 h-6 text-cyan-400" />
+                  Create Project
+                </h2>
+                <button onClick={() => setShowCreateProject(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Project Title *</label>
+                <input
+                  type="text"
+                  value={projectForm.title}
+                  onChange={(e) => setProjectForm({ ...projectForm, title: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="Enter project title"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Description</label>
+                <textarea
+                  value={projectForm.description}
+                  onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })}
+                  rows={3}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
+                  placeholder="Describe your project..."
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-slate-400 text-sm block mb-2">Resource Title *</label>
-                  <input
-                    type="text"
+                  <label className="text-slate-400 text-sm block mb-2">Status</label>
+                  <select
+                    value={projectForm.status}
+                    onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}
                     className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                    placeholder="Enter resource title"
+                  >
+                    <option value="Planning">Planning</option>
+                    <option value="Active">Active</option>
+                    <option value="On Hold">On Hold</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Budget ($)</label>
+                  <input
+                    type="number"
+                    value={projectForm.budget}
+                    onChange={(e) => setProjectForm({ ...projectForm, budget: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Start Date</label>
+                  <input
+                    type="date"
+                    value={projectForm.start_date}
+                    onChange={(e) => setProjectForm({ ...projectForm, start_date: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
                   />
                 </div>
                 <div>
-                  <label className="text-slate-400 text-sm block mb-2">Description *</label>
-                  <textarea
-                    rows={3}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none"
-                    placeholder="Describe the resource"
+                  <label className="text-slate-400 text-sm block mb-2">End Date</label>
+                  <input
+                    type="date"
+                    value={projectForm.end_date}
+                    onChange={(e) => setProjectForm({ ...projectForm, end_date: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
                   />
                 </div>
+              </div>
+              <button
+                onClick={handleCreateProject}
+                disabled={submitting}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {submitting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    Create Project
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============ SHARE RESOURCE MODAL ============ */}
+      {showResourceModal && selectedOrg && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowResourceModal(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <Upload className="w-6 h-6 text-cyan-400" />
+                  Share Resource
+                </h2>
+                <button onClick={() => setShowResourceModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Resource Title *</label>
+                <input
+                  type="text"
+                  value={resourceForm.title}
+                  onChange={(e) => setResourceForm({ ...resourceForm, title: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="Enter resource title"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Description</label>
+                <textarea
+                  value={resourceForm.description}
+                  onChange={(e) => setResourceForm({ ...resourceForm, description: e.target.value })}
+                  rows={3}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
+                  placeholder="Describe the resource..."
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-slate-400 text-sm block mb-2">Resource Type *</label>
-                  <select className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white">
-                    <option value="dataset">Dataset</option>
-                    <option value="report">Report</option>
-                    <option value="toolkit">Toolkit</option>
-                    <option value="training">Training Material</option>
-                    <option value="policy">Policy Document</option>
-                    <option value="research">Research Paper</option>
+                  <select
+                    value={resourceForm.type}
+                    onChange={(e) => setResourceForm({ ...resourceForm, type: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  >
+                    {resourceTypes.map(type => (
+                      <option key={type} value={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <label className="text-slate-400 text-sm block mb-2">Access Level</label>
-                  <select className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white">
+                  <select
+                    value={resourceForm.access_level}
+                    onChange={(e) => setResourceForm({ ...resourceForm, access_level: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  >
                     <option value="public">Public - Everyone can view</option>
                     <option value="partners">Partners Only</option>
                     <option value="private">Private - Organization only</option>
                   </select>
                 </div>
-                <div>
-                  <label className="text-slate-400 text-sm block mb-2">Resource URL</label>
-                  <input
-                    type="url"
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                    placeholder="https://example.com/resource"
-                  />
-                </div>
-                <button className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors">
-                  Share Resource
-                </button>
               </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Resource URL</label>
+                <input
+                  type="url"
+                  value={resourceForm.url}
+                  onChange={(e) => setResourceForm({ ...resourceForm, url: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="https://example.com/resource"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Tags (comma separated)</label>
+                <input
+                  type="text"
+                  value={resourceForm.tags}
+                  onChange={(e) => setResourceForm({ ...resourceForm, tags: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="e.g., mental-health, policy, advocacy"
+                />
+              </div>
+              <button
+                onClick={handleShareResource}
+                disabled={submitting}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {submitting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4" />
+                    Share Resource
+                  </>
+                )}
+              </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* ============ CREATE EVENT MODAL ============ */}
+      {showEventModal && selectedOrg && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowEventModal(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <Calendar className="w-6 h-6 text-cyan-400" />
+                  Create Event
+                </h2>
+                <button onClick={() => setShowEventModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Event Title *</label>
+                <input
+                  type="text"
+                  value={eventForm.title}
+                  onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="Enter event title"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Description</label>
+                <textarea
+                  value={eventForm.description}
+                  onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
+                  rows={3}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
+                  placeholder="Describe your event..."
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Event Type *</label>
+                  <select
+                    value={eventForm.type}
+                    onChange={(e) => setEventForm({ ...eventForm, type: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  >
+                    {eventTypes.map(type => (
+                      <option key={type} value={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Capacity</label>
+                  <input
+                    type="number"
+                    value={eventForm.capacity}
+                    onChange={(e) => setEventForm({ ...eventForm, capacity: parseInt(e.target.value) || 1 })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                    min="1"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Start Date *</label>
+                  <input
+                    type="datetime-local"
+                    value={eventForm.start_date}
+                    onChange={(e) => setEventForm({ ...eventForm, start_date: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">End Date *</label>
+                  <input
+                    type="datetime-local"
+                    value={eventForm.end_date}
+                    onChange={(e) => setEventForm({ ...eventForm, end_date: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Location</label>
+                <input
+                  type="text"
+                  value={eventForm.location}
+                  onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="e.g., Conference Hall, Online"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Virtual Link</label>
+                <input
+                  type="url"
+                  value={eventForm.virtual_link}
+                  onChange={(e) => setEventForm({ ...eventForm, virtual_link: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="https://meet.example.com/event"
+                />
+              </div>
+              <button
+                onClick={handleCreateEvent}
+                disabled={submitting}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {submitting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Calendar className="w-4 h-4" />
+                    Create Event
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============ COLLABORATION MODAL ============ */}
+      {showCollaborationModal && selectedOrg && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowCollaborationModal(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <Handshake className="w-6 h-6 text-cyan-400" />
+                  Request Collaboration
+                </h2>
+                <button onClick={() => setShowCollaborationModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Partner Organization *</label>
+                <select
+                  value={selectedPartner}
+                  onChange={(e) => setSelectedPartner(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                >
+                  <option value="">Select an organization</option>
+                  {getPartnerOptions().map(org => (
+                    <option key={org.value} value={org.value}>{org.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Type of Collaboration *</label>
+                <select
+                  value={partnershipType}
+                  onChange={(e) => setPartnershipType(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                >
+                  <option value="partnership">Partnership</option>
+                  <option value="affiliation">Affiliation</option>
+                  <option value="coalition">Coalition</option>
+                  <option value="project">Joint Project</option>
+                  <option value="network">Network</option>
+                  <option value="mentorship">Mentorship</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Message *</label>
+                <textarea
+                  value={collaborationMessage}
+                  onChange={(e) => setCollaborationMessage(e.target.value)}
+                  rows={4}
+                  placeholder="Describe why you want to collaborate and what you hope to achieve..."
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+              <button
+                onClick={handleSendCollaborationRequest}
+                disabled={submitting}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {submitting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Send Request
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
      </div>
   )}
