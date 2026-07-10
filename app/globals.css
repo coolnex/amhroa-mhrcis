@@ -6,6 +6,52 @@
   --background: #ffffff;
   --foreground: #171717;
 }
+/* Custom Scrollbar for Sidebar */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(6, 182, 212, 0.3) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(6, 182, 212, 0.3);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 182, 212, 0.6);
+}
+
+/* Hide scrollbar when not hovering */
+.custom-scrollbar {
+  scrollbar-width: thin;
+}
+
+.custom-scrollbar:hover {
+  scrollbar-color: rgba(6, 182, 212, 0.6) transparent;
+}
+
+/* Firefox scrollbar */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(6, 182, 212, 0.3) transparent;
+}
+
+.custom-scrollbar:hover {
+  scrollbar-color: rgba(6, 182, 212, 0.6) transparent;
+}
+
+/* Smooth transitions for sidebar */
+.sidebar-transition {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
 
 @theme inline {
   --color-background: var(--background);

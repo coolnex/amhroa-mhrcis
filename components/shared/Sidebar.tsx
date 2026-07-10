@@ -1,3 +1,4 @@
+// app/components/Sidebar.tsx
 "use client";
 
 import { supabase } from "@/lib/supabase";
@@ -106,7 +107,6 @@ const roleBadges: Record<UserRole, { color: string; bg: string }> = {
 const getBaseRole = (role: string): UserRole => {
   if (role.endsWith("_coordinator")) {
     const baseRole = role.replace("_coordinator", "") as UserRole;
-    // Map mental_health to mental_health_professional
     if (baseRole === "mental_health" as UserRole) return "Mental_Health_Professional";
     return baseRole;
   }
@@ -209,7 +209,7 @@ const navigationGroups = {
   activities: {
     label: "WORKING GROUPS",
     icon: Users,
-    roles: ["Admin", "Policymaker", "Researcher", "Mental_Health_Professional", "Coordinator", "admin_coordinator", "policymaker_coordinator", "donor_coordinator", "researcher_coordinator", "mental_health_coordinator"],
+    roles: ["Admin", "Policymaker", "Researcher", "Regional_Executive" , "Mental_Health_Professional", "Coordinator", "admin_coordinator", "policymaker_coordinator", "donor_coordinator", "researcher_coordinator", "mental_health_coordinator"],
     links: [
       { name: "All Working Groups", href: "/working-groups", icon: Users },
     ],
@@ -245,7 +245,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const checkUserSession = async () => {
     setLoading(true);
     try {
-      // First check localStorage for user profile (from login)
       const userStr = localStorage.getItem("user");
       
       console.log("🔍 Sidebar - Checking user session...");
@@ -256,7 +255,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           const userData = JSON.parse(userStr);
           console.log("🔍 Sidebar - User data from localStorage:", userData);
           
-          // Check if the user data is valid and has a role
           if (userData && userData.role) {
             setIsAuthenticated(true);
             setUserRole(userData.role as UserRole);
@@ -269,12 +267,10 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           }
         } catch (parseError) {
           console.error("Error parsing user data:", parseError);
-          // If parsing fails, clear invalid data
           localStorage.removeItem("user");
         }
       }
 
-      // If no valid localStorage, check Supabase session
       console.log("🔍 Sidebar - Checking Supabase session...");
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
@@ -287,7 +283,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         setIsAuthenticated(false);
         setUserRole("public");
         
-        // Check if current route requires authentication
         const isPublicRoute = 
           pathname === "/" ||
           pathname === "/login" ||
@@ -310,20 +305,17 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         return;
       }
       
-      // User is authenticated via Supabase
       console.log("✅ Sidebar - User authenticated via Supabase:", session.user.id);
       setIsAuthenticated(true);
       
-      // Try to get role from user metadata first
       let role = session.user.user_metadata?.role || "public";
       
-      // If role is still public or not set, check the users table
       if (role === "public") {
         console.log("🔍 Sidebar - Looking up role in users table...");
         const { data: userData, error: userError } = await supabase
           .from("users")
           .select("role, full_name, email")
-          .eq("auth_user_id", session.user.id)  // Use auth_user_id
+          .eq("auth_user_id", session.user.id)
           .single();
         
         if (userError) {
@@ -337,7 +329,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         }
       }
       
-      // If role is still not set, use default
       if (!role || role === "public") {
         role = "public";
       }
@@ -345,7 +336,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       console.log("🔍 Sidebar - Final role:", role);
       setUserRole(role as UserRole);
       
-      // If we haven't set user name yet, use from session
       if (!userName) {
         setUserName(session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "User");
         setUserEmail(session.user.email || "");
@@ -364,26 +354,21 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
     try {
       console.log("🚪 Logging out...");
       
-      // Clear localStorage
       localStorage.removeItem("user");
       localStorage.removeItem("session");
       localStorage.removeItem("token");
       
-      // Clear cookies if any
       document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
       
-      // Sign out from Supabase
       const { error } = await supabase.auth.signOut();
       if (error) {
         console.error("Logout error:", error);
       }
       
-      // Reset state
       setIsAuthenticated(false);
       setUserRole("public");
       setUserData(null);
       
-      // Redirect to login
       router.push("/login");
     } catch (error) {
       console.error("Logout error:", error);
@@ -393,10 +378,8 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   // Filter groups based on user role
   const visibleGroups = Object.entries(navigationGroups).filter(
     ([_, group]) => {
-      // Check if user role matches any role in the group
       return group.roles.some(role => 
         role.toLowerCase() === userRole.toLowerCase() ||
-        // Check for coordinator variations
         (userRole.endsWith("_coordinator") && role === userRole.replace("_coordinator", "")) ||
         (userRole === "Coordinator" && role === "coordinator")
       );
@@ -449,14 +432,14 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
 
   return (
     <aside
-      className={`relative bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 text-white transition-all duration-300 ${
+      className={`relative bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 text-white transition-all duration-300 flex flex-col h-screen sticky top-0 overflow-hidden ${
         collapsed ? "w-20" : "w-80"
-      } min-h-screen flex flex-col shadow-2xl border-r border-slate-700/50 z-50`}
+      } shadow-2xl border-r border-slate-700/50 z-50`}
     >
       {/* Toggle Button */}
       <button
         onClick={onToggle}
-        className="absolute -right-3 top-20 bg-slate-700 hover:bg-cyan-600 rounded-full p-1.5 border-2 border-slate-800 transition-all z-50"
+        className="absolute -right-3 top-20 bg-slate-700 hover:bg-cyan-600 rounded-full p-1.5 border-2 border-slate-800 transition-all z-50 shadow-lg"
       >
         {collapsed ? (
           <ChevronRight className="w-4 h-4" />
@@ -465,26 +448,24 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         )}
       </button>
 
-      {/* Logo Section */}
-      <div className={`p-6 border-b border-slate-700/50 ${collapsed ? "text-center" : ""}`}>
+      {/* Logo Section - Fixed */}
+      <div className={`p-6 border-b border-slate-700/50 flex-shrink-0 ${collapsed ? "text-center" : ""}`}>
         {!collapsed ? (
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center">
-            <Image
-              src="/og-image.png"
-              alt="AMHROA Logo"
-              width={48}
-              height={48}
-              className="object-contain"
-              
-              
-            />
+            <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Image
+                src="/og-image.png"
+                alt="AMHROA Logo"
+                width={48}
+                height={48}
+                className="object-contain"
+              />
             </div>
-            <div>
-              <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent truncate">
                 AMHROA
               </h1>
-              <p className="text-slate-400 text-xs">Association of Mental Health Reform Organizations of Africa</p>
+              <p className="text-slate-400 text-xs truncate">Association of Mental Health Reform Organizations of Africa</p>
             </div>
           </div>
         ) : (
@@ -495,11 +476,11 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         )}
       </div>
 
-      {/* User Role Indicator */}
+      {/* User Role Indicator - Fixed */}
       {!collapsed && (
-        <div className="mx-4 mt-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700">
+        <div className="mx-4 mt-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full ${roleBadge.bg} flex items-center justify-center`}>
+            <div className={`w-10 h-10 rounded-full ${roleBadge.bg} flex items-center justify-center flex-shrink-0`}>
               <span className={`text-white font-bold text-sm ${roleBadge.color}`}>
                 {getUserInitials()}
               </span>
@@ -513,20 +494,20 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         </div>
       )}
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-6 custom-scrollbar">
+      {/* Navigation - Scrollable with custom scrollbar */}
+      <nav className="flex-1 overflow-y-auto py-4 px-3 custom-scrollbar min-h-0">
         <div className="space-y-6">
           {visibleGroups.map(([groupKey, group]) => {
             const isExpanded = expandedGroups.includes(groupKey);
             const GroupIcon = group.icon;
 
             return (
-              <div key={groupKey} className="px-3">
+              <div key={groupKey} className="px-1">
                 {/* Group Header */}
                 <button
                   onClick={() => toggleGroup(groupKey)}
                   className={`w-full flex items-center justify-between text-slate-400 text-xs font-semibold tracking-wider mb-2 hover:text-cyan-400 transition-colors ${
-                    collapsed ? "justify-center" : "px-3"
+                    collapsed ? "justify-center" : "px-2"
                   }`}
                 >
                   {!collapsed && (
@@ -536,9 +517,9 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                         {group.label}
                       </span>
                       {isExpanded ? (
-                        <ChevronUp className="w-3.5 h-3.5" />
+                        <ChevronUp className="w-3.5 h-3.5 flex-shrink-0" />
                       ) : (
-                        <ChevronDown className="w-3.5 h-3.5" />
+                        <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />
                       )}
                     </>
                   )}
@@ -587,8 +568,8 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         </div>
       </nav>
 
-      {/* Logout Button */}
-      <div className="p-4 border-t border-slate-700/50">
+      {/* Logout Button - Fixed */}
+      <div className="p-4 border-t border-slate-700/50 flex-shrink-0">
         <button
           onClick={handleLogout}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 text-slate-300 hover:bg-red-600/20 hover:text-red-400 ${
@@ -600,9 +581,9 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         </button>
       </div>
 
-      {/* Footer Stats */}
+      {/* Footer Stats - Fixed */}
       {!collapsed && (
-        <div className="p-4 border-t border-slate-700/50 space-y-2">
+        <div className="p-4 border-t border-slate-700/50 space-y-2 flex-shrink-0">
           <div className="flex justify-between text-xs">
             <span className="text-slate-400">Active Countries</span>
             <span className="text-cyan-400 font-mono font-bold">54/54</span>
@@ -626,7 +607,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
 
       {/* Collapsed Footer */}
       {collapsed && (
-        <div className="p-4 border-t border-slate-700/50 flex justify-center">
+        <div className="p-4 border-t border-slate-700/50 flex justify-center flex-shrink-0">
           <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center">
             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
           </div>

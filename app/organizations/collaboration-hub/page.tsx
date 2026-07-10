@@ -64,6 +64,7 @@ import {
   Target,
   Award,
   X,
+  Loader2,
 } from "lucide-react";
 
 // ============ INTERFACES ============
@@ -77,6 +78,7 @@ interface Organization {
   description: string;
   logo_url?: string;
   focus_areas?: string[];
+  status?: string;
 }
 
 interface TeamMember {
@@ -95,18 +97,21 @@ interface Event {
   id: string;
   title: string;
   description: string;
-  type: "webinar" | "workshop" | "conference" | "networking" | "training" | "meeting" | "social";
+  event_type: string;
   organization_id: string;
   organization_name: string;
   start_date: string;
   end_date: string;
   location: string;
+  venue?: string;
   virtual_link?: string;
+  meeting_link?: string;
   capacity: number;
-  registered: number;
-  status: "upcoming" | "ongoing" | "completed" | "cancelled";
+  registered_count: number;
+  status: string;
   focus_areas: string[];
   created_at: string;
+  is_virtual?: boolean;
   image_url?: string;
   speakers?: string[];
   agenda?: string[];
@@ -135,7 +140,7 @@ interface CollaborationRequest {
   to_organization_id: string;
   from_organization_name: string;
   message: string;
-  partnership_type: "partnership" | "affiliation" | "coalition" | "project" | "network" | "mentorship";
+  partnership_type: string;
   status: "pending" | "accepted" | "rejected" | "expired";
   created_at: string;
   focus_areas: string[];
@@ -162,24 +167,21 @@ interface Collaboration {
   contact_person_name?: string;
   created_at: string;
   updated_at: string;
-  meeting_frequency?: string;
-  communication_channels?: string[];
-  shared_resources?: string[];
 }
 
 // ============ CONSTANTS ============
 
-const eventTypeColors = {
-  webinar: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  workshop: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  conference: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  networking: "bg-pink-500/20 text-pink-400 border-pink-500/30",
-  training: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  meeting: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-  social: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+const eventTypeColors: Record<string, string> = {
+  Webinar: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+  Workshop: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+  Conference: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  Networking: "bg-pink-500/20 text-pink-400 border-pink-500/30",
+  Training: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  Meeting: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+  Social: "bg-orange-500/20 text-orange-400 border-orange-500/30",
 };
 
-const noticePriorityColors = {
+const noticePriorityColors: Record<string, string> = {
   low: "bg-slate-500/20 text-slate-400",
   medium: "bg-blue-500/20 text-blue-400",
   high: "bg-yellow-500/20 text-yellow-400",
@@ -201,6 +203,16 @@ const focusAreasOptions = [
   "Capacity Building",
 ];
 
+const eventTypes = [
+  "Webinar",
+  "Workshop",
+  "Conference",
+  "Networking",
+  "Training",
+  "Meeting",
+  "Social"
+];
+
 // ============ MAIN COMPONENT ============
 
 export default function CollaborationHubPage() {
@@ -219,6 +231,8 @@ export default function CollaborationHubPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   // Modal states
   const [showAddMember, setShowAddMember] = useState(false);
@@ -237,14 +251,16 @@ export default function CollaborationHubPage() {
   const [eventForm, setEventForm] = useState({
     title: "",
     description: "",
-    type: "webinar" as Event["type"],
+    event_type: "Webinar",
     start_date: "",
     end_date: "",
     location: "",
-    virtual_link: "",
+    venue: "",
+    meeting_link: "",
     capacity: 100,
     focus_areas: [] as string[],
     is_public: true,
+    is_virtual: false,
   });
 
   // Form states - Notices
@@ -261,7 +277,7 @@ export default function CollaborationHubPage() {
   const [collaborationForm, setCollaborationForm] = useState({
     partner_organization_id: "",
     message: "",
-    partnership_type: "partnership" as CollaborationRequest["partnership_type"],
+    partnership_type: "partnership",
     focus_areas: [] as string[],
     proposed_start_date: "",
     proposed_end_date: "",
@@ -360,12 +376,11 @@ export default function CollaborationHubPage() {
 
         const orgIds = memberOrgs?.map(m => m.organization_id) || [];
         if (orgIds.length > 0) {
-          const idsString = orgIds.map(id => `"${id}"`).join(',');
           const { data, error } = await supabase
             .from("organizations")
             .select("*")
             .eq("status", "Approved")
-            .or(`id.in.(${idsString}),created_by.eq.${userData.id}`)
+            .in("id", orgIds)
             .order("name", { ascending: true });
           if (error) throw error;
           orgsData = data || [];
@@ -382,9 +397,23 @@ export default function CollaborationHubPage() {
       }
 
       setOrganizations(orgsData);
-      if (orgsData.length > 0) {
-        setSelectedOrg(orgsData[0]);
-        await fetchOrganizationData(orgsData[0].id);
+      
+      // Try to get the selected org from localStorage or use the first one
+      const savedOrgId = localStorage.getItem("selectedOrgId");
+      let orgToSelect = null;
+      
+      if (savedOrgId) {
+        orgToSelect = orgsData.find(org => org.id === savedOrgId) || null;
+      }
+      
+      if (!orgToSelect && orgsData.length > 0) {
+        orgToSelect = orgsData[0];
+      }
+      
+      if (orgToSelect) {
+        setSelectedOrg(orgToSelect);
+        localStorage.setItem("selectedOrgId", orgToSelect.id);
+        await fetchOrganizationData(orgToSelect.id);
       }
     } catch (error) {
       console.error("Error fetching organizations:", error);
@@ -419,7 +448,7 @@ export default function CollaborationHubPage() {
         .eq("organization_id", orgId);
 
       if (membersError) {
-        console.warn("Members table not found:", membersError);
+        console.warn("Members table error:", membersError);
         setTeamMembers([]);
         return;
       }
@@ -462,6 +491,7 @@ export default function CollaborationHubPage() {
     }
   };
 
+  // FIXED: Use correct column names from events table
   const fetchEvents = async (orgId: string) => {
     try {
       const { data, error } = await supabase
@@ -471,11 +501,33 @@ export default function CollaborationHubPage() {
         .order("start_date", { ascending: true });
 
       if (error) {
-        console.warn("Events table not found:", error);
+        console.warn("Events table error:", error);
         setEvents([]);
         return;
       }
-      setEvents(data || []);
+      
+      // Map the data to match the Event interface
+      const mappedEvents = (data || []).map((event: any) => ({
+        id: event.id,
+        title: event.title,
+        description: event.description,
+        event_type: event.event_type || event.type || "Webinar",
+        organization_id: event.organization_id,
+        organization_name: event.organization_name,
+        start_date: event.start_date,
+        end_date: event.end_date,
+        location: event.location || event.venue || "",
+        venue: event.venue,
+        meeting_link: event.meeting_link || event.virtual_link,
+        capacity: event.capacity || 0,
+        registered_count: event.registered_count || 0,
+        status: event.status || "upcoming",
+        focus_areas: event.focus_areas || [],
+        created_at: event.created_at,
+        is_virtual: event.is_virtual || false,
+      }));
+      
+      setEvents(mappedEvents);
     } catch (error) {
       console.error("Error fetching events:", error);
       setEvents([]);
@@ -492,7 +544,7 @@ export default function CollaborationHubPage() {
         .order("created_at", { ascending: false });
 
       if (error) {
-        console.warn("Notices table not found:", error);
+        console.warn("Notices table error:", error);
         setNotices([]);
         return;
       }
@@ -512,7 +564,7 @@ export default function CollaborationHubPage() {
         .eq("status", "active");
 
       if (error) {
-        console.warn("Collaborations table not found:", error);
+        console.warn("Collaborations table error:", error);
         setCollaborations([]);
         return;
       }
@@ -532,7 +584,7 @@ export default function CollaborationHubPage() {
         .eq("status", "pending");
 
       if (error) {
-        console.warn("Collaboration requests table not found:", error);
+        console.warn("Collaboration requests table error:", error);
         setCollaborationRequests([]);
         return;
       }
@@ -545,111 +597,180 @@ export default function CollaborationHubPage() {
 
   // ============ HANDLERS ============
 
+  // FIXED: Add member with proper error handling
   const handleInviteMember = async () => {
     if (!newMemberEmail) {
-      alert("Please enter an email address");
+      setError("Please enter an email address");
       return;
     }
 
     setInviting(true);
+    setError(null);
+    
     try {
-      const { data: existingUser } = await supabase
+      // First check if user exists
+      const { data: existingUser, error: userError } = await supabase
         .from("users")
         .select("id, full_name, email")
         .eq("email", newMemberEmail)
-        .single();
+        .maybeSingle();
+
+      if (userError) throw userError;
 
       if (!existingUser) {
-        alert("User not found. Please ask them to register first.");
+        setError("User not found. Please ask them to register first.");
         setInviting(false);
         return;
       }
 
-      const { error } = await supabase
+      // Check if already a member
+      const { data: existingMember, error: checkError } = await supabase
+        .from("organization_members")
+        .select("id")
+        .eq("organization_id", selectedOrg?.id)
+        .eq("user_id", existingUser.id)
+        .maybeSingle();
+
+      if (checkError) throw checkError;
+
+      if (existingMember) {
+        setError(`${existingUser.full_name} is already a member.`);
+        setInviting(false);
+        return;
+      }
+
+      const { error: insertError } = await supabase
         .from("organization_members")
         .insert({
           organization_id: selectedOrg?.id,
           user_id: existingUser.id,
           role: newMemberRole,
-          department: newMemberDepartment,
+          department: newMemberDepartment || null,
           skills: newMemberSkills ? newMemberSkills.split(',').map(s => s.trim()) : [],
           joined_at: new Date().toISOString(),
         });
 
-      if (error) throw error;
+      if (insertError) throw insertError;
 
-      alert(`Successfully added ${newMemberEmail} to the team!`);
+      setSuccessMessage(`✅ Successfully added ${existingUser.full_name} to the team!`);
       setShowAddMember(false);
       setNewMemberEmail("");
       setNewMemberRole("Member");
       setNewMemberDepartment("");
       setNewMemberSkills("");
+      
       if (selectedOrg) {
         await fetchTeamMembers(selectedOrg.id);
       }
-    } catch (error) {
+      
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (error: any) {
       console.error("Error inviting member:", error);
-      alert("Failed to invite member. Please try again.");
+      setError(error.message || "Failed to invite member. Please try again.");
     } finally {
       setInviting(false);
     }
   };
 
+  // FIXED: Create event with correct column names
   const handleCreateEvent = async () => {
     if (!eventForm.title || !eventForm.start_date || !eventForm.end_date) {
-      alert("Please fill in all required fields");
+      setError("Please fill in all required fields (Title, Start Date, End Date)");
       return;
     }
+
+    setSubmitting(true);
+    setError(null);
 
     try {
       const { data, error } = await supabase
         .from("events")
         .insert({
-          ...eventForm,
+          title: eventForm.title,
+          description: eventForm.description,
+          event_type: eventForm.event_type,
           organization_id: selectedOrg?.id,
           organization_name: selectedOrg?.name,
-          registered: 0,
-          status: new Date(eventForm.start_date) > new Date() ? "upcoming" : "ongoing",
+          start_date: new Date(eventForm.start_date).toISOString(),
+          end_date: new Date(eventForm.end_date).toISOString(),
+          location: eventForm.location || null,
+          venue: eventForm.venue || null,
+          meeting_link: eventForm.meeting_link || null,
+          capacity: eventForm.capacity || 100,
+          registered_count: 0,
+          is_virtual: eventForm.is_virtual || false,
+          status: new Date(eventForm.start_date) > new Date() ? "Upcoming" : "Ongoing",
+          focus_areas: eventForm.focus_areas || [],
           created_at: new Date().toISOString(),
+          approval_status: "Pending",
         })
         .select();
 
       if (error) throw error;
 
-      alert("Event created successfully!");
+      setSuccessMessage("✅ Event created successfully!");
       setShowCreateEvent(false);
       setEventForm({
         title: "",
         description: "",
-        type: "webinar",
+        event_type: "Webinar",
         start_date: "",
         end_date: "",
         location: "",
-        virtual_link: "",
+        venue: "",
+        meeting_link: "",
         capacity: 100,
         focus_areas: [],
         is_public: true,
+        is_virtual: false,
       });
+      
       if (selectedOrg) {
         await fetchEvents(selectedOrg.id);
       }
-    } catch (error) {
+      
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (error: any) {
       console.error("Error creating event:", error);
-      alert("Failed to create event. Please try again.");
+      setError(error.message || "Failed to create event. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
+  // FIXED: Create notice with proper error handling
   const handleCreateNotice = async () => {
     if (!noticeForm.title || !noticeForm.content) {
-      alert("Please fill in all required fields");
+      setError("Please fill in all required fields (Title and Content)");
       return;
     }
 
+    setSubmitting(true);
+    setError(null);
+
     try {
+      // Check if notices table exists, if not create a fallback
+      const { data: tableCheck, error: tableError } = await supabase
+        .from("notices")
+        .select("id")
+        .limit(1);
+
+      // If table doesn't exist, use an alternative approach or show helpful message
+      if (tableError && tableError.message?.includes("does not exist")) {
+        setError("The 'notices' table does not exist. Please run the database migration to create it.");
+        setSubmitting(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("notices")
         .insert({
-          ...noticeForm,
+          title: noticeForm.title,
+          content: noticeForm.content,
+          type: noticeForm.type,
+          priority: noticeForm.priority,
+          is_pinned: noticeForm.is_pinned,
+          expires_at: noticeForm.expires_at || null,
           organization_id: selectedOrg?.id,
           organization_name: selectedOrg?.name,
           read_count: 0,
@@ -657,9 +778,12 @@ export default function CollaborationHubPage() {
         })
         .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Notice insertion error:", error);
+        throw error;
+      }
 
-      alert("Notice published successfully!");
+      setSuccessMessage("✅ Notice published successfully!");
       setShowCreateNotice(false);
       setNoticeForm({
         title: "",
@@ -669,43 +793,60 @@ export default function CollaborationHubPage() {
         is_pinned: false,
         expires_at: "",
       });
+      
       if (selectedOrg) {
         await fetchNotices(selectedOrg.id);
       }
-    } catch (error) {
+      
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (error: any) {
       console.error("Error creating notice:", error);
-      alert("Failed to publish notice. Please try again.");
+      setError(error.message || "Failed to publish notice. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
+  // FIXED: Send collaboration request
   const handleSendCollaborationRequest = async () => {
     if (!collaborationForm.partner_organization_id || !collaborationForm.message) {
-      alert("Please select a partner organization and enter a message");
+      setError("Please select a partner organization and enter a message");
       return;
     }
 
+    setSubmitting(true);
+    setError(null);
+
     try {
+      const partnerOrg = organizations.find(o => o.id === collaborationForm.partner_organization_id);
+      
       const { error } = await supabase
         .from("collaboration_requests")
         .insert({
           from_organization_id: selectedOrg?.id,
           to_organization_id: collaborationForm.partner_organization_id,
+          from_organization_name: selectedOrg?.name,
           message: collaborationForm.message,
           partnership_type: collaborationForm.partnership_type,
           status: "pending",
-          focus_areas: collaborationForm.focus_areas,
+          focus_areas: collaborationForm.focus_areas || [],
           contact_email: user?.email,
           contact_name: user?.full_name,
           proposed_start_date: collaborationForm.proposed_start_date || null,
           proposed_end_date: collaborationForm.proposed_end_date || null,
-          expected_outcomes: collaborationForm.expected_outcomes ? collaborationForm.expected_outcomes.split(',').map(s => s.trim()) : [],
-          resources_offered: collaborationForm.resources_offered ? collaborationForm.resources_offered.split(',').map(s => s.trim()) : [],
+          expected_outcomes: collaborationForm.expected_outcomes ? 
+            collaborationForm.expected_outcomes.split(',').map(s => s.trim()) : [],
+          resources_offered: collaborationForm.resources_offered ? 
+            collaborationForm.resources_offered.split(',').map(s => s.trim()) : [],
           created_at: new Date().toISOString(),
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Collaboration request error:", error);
+        throw error;
+      }
 
-      alert("Collaboration request sent successfully!");
+      setSuccessMessage(`✅ Collaboration request sent to ${partnerOrg?.name || 'partner'} successfully!`);
       setShowCollaborationModal(false);
       setCollaborationForm({
         partner_organization_id: "",
@@ -717,105 +858,164 @@ export default function CollaborationHubPage() {
         expected_outcomes: "",
         resources_offered: "",
       });
+      
       if (selectedOrg) {
         await fetchCollaborationRequests(selectedOrg.id);
       }
-    } catch (error) {
+      
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (error: any) {
       console.error("Error sending collaboration request:", error);
-      alert("Failed to send collaboration request. Please try again.");
+      setError(error.message || "Failed to send collaboration request. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
+  // FIXED: Respond to collaboration request
   const handleRespondToRequest = async (requestId: string, accept: boolean) => {
+    setSubmitting(true);
+    setError(null);
+
     try {
-      const { error } = await supabase
+      // Get the request details
+      const { data: request, error: fetchError } = await supabase
         .from("collaboration_requests")
-        .update({ status: accept ? "accepted" : "rejected" })
+        .select("*")
+        .eq("id", requestId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Update the request status
+      const { error: updateError } = await supabase
+        .from("collaboration_requests")
+        .update({ 
+          status: accept ? "accepted" : "rejected",
+          updated_at: new Date().toISOString()
+        })
         .eq("id", requestId);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      if (accept) {
-        const request = collaborationRequests.find(r => r.id === requestId);
-        if (request) {
-          const { error: collabError } = await supabase
-            .from("collaborations")
-            .insert({
-              organization_id: request.to_organization_id,
-              partner_organization_id: request.from_organization_id,
-              type: request.partnership_type,
-              status: "active",
-              start_date: request.proposed_start_date || new Date().toISOString(),
-              end_date: request.proposed_end_date || null,
-              description: request.message,
-              focus_areas: request.focus_areas,
-              contact_person_id: user?.id,
-              contact_person_name: user?.full_name,
-              communication_channels: ["email", "meetings"],
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            });
+      if (accept && request) {
+        // Create the collaboration record
+        const { error: collabError } = await supabase
+          .from("collaborations")
+          .insert({
+            organization_id: request.to_organization_id,
+            partner_organization_id: request.from_organization_id,
+            partner_organization_name: request.from_organization_name,
+            type: request.partnership_type,
+            status: "active",
+            start_date: request.proposed_start_date || new Date().toISOString(),
+            end_date: request.proposed_end_date || null,
+            description: request.message,
+            focus_areas: request.focus_areas || [],
+            contact_person_id: user?.id,
+            contact_person_name: user?.full_name,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
 
-          if (collabError) throw collabError;
-        }
+        if (collabError) throw collabError;
       }
 
+      setSuccessMessage(accept ? "✅ Collaboration request accepted!" : "Collaboration request declined.");
+      
       await fetchCollaborationRequests(selectedOrg?.id || "");
       await fetchCollaborations(selectedOrg?.id || "");
       
-      alert(accept ? "Collaboration request accepted!" : "Collaboration request declined.");
-    } catch (error) {
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (error: any) {
       console.error("Error responding to request:", error);
-      alert("Failed to process request. Please try again.");
+      setError(error.message || "Failed to process request. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
+  // FIXED: Register for event with proper count
   const handleRegisterForEvent = async (eventId: string) => {
+    if (!user) {
+      setError("Please login to register for events");
+      return;
+    }
+
     try {
+      // Check if already registered
+      const { data: existing, error: checkError } = await supabase
+        .from("event_registrations")
+        .select("id")
+        .eq("event_id", eventId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error("Error checking registration:", checkError);
+      }
+
+      if (existing) {
+        setError("You are already registered for this event!");
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+
       const { error } = await supabase
         .from("event_registrations")
         .insert({
           event_id: eventId,
-          user_id: user?.id,
+          user_id: user.id,
           organization_id: selectedOrg?.id,
           registered_at: new Date().toISOString(),
+          registration_status: "Registered",
+          payment_status: "Pending",
         });
 
       if (error) throw error;
       
-      const { error: updateError } = await supabase
-        .from("events")
-        .update({ registered: (events.find(e => e.id === eventId)?.registered || 0) + 1 })
-        .eq("id", eventId);
+      // Update registered count - FIXED: Use registered_count
+      const event = events.find(e => e.id === eventId);
+      if (event) {
+        const { error: updateError } = await supabase
+          .from("events")
+          .update({ registered_count: (event.registered_count || 0) + 1 })
+          .eq("id", eventId);
 
-      if (updateError) throw updateError;
+        if (updateError) throw updateError;
+      }
 
-      alert("Successfully registered for the event!");
+      setSuccessMessage("✅ Successfully registered for the event!");
       if (selectedOrg) {
         await fetchEvents(selectedOrg.id);
       }
-    } catch (error) {
+      
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (error: any) {
       console.error("Error registering for event:", error);
-      alert("Failed to register for event. Please try again.");
+      setError(error.message || "Failed to register for event. Please try again.");
     }
   };
 
   // ============ HELPERS ============
 
   const getEventTypeColor = (type: string) => {
-    return eventTypeColors[type as keyof typeof eventTypeColors] || "bg-slate-500/20 text-slate-400";
+    return eventTypeColors[type] || "bg-slate-500/20 text-slate-400";
   };
 
   const getNoticePriorityColor = (priority: string) => {
-    return noticePriorityColors[priority as keyof typeof noticePriorityColors] || "bg-slate-500/20 text-slate-400";
+    return noticePriorityColors[priority] || "bg-slate-500/20 text-slate-400";
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
+    const statusLower = status?.toLowerCase() || "";
+    switch (statusLower) {
       case "active":
       case "accepted":
+      case "upcoming":
         return "bg-emerald-500/20 text-emerald-400";
       case "pending":
+      case "ongoing":
         return "bg-yellow-500/20 text-yellow-400";
       case "completed":
         return "bg-blue-500/20 text-blue-400";
@@ -841,14 +1041,14 @@ export default function CollaborationHubPage() {
       .filter(org => org.id !== selectedOrg?.id)
       .map(org => ({
         value: org.id,
-        label: `${org.name} (${org.country})`
+        label: `${org.name} (${org.country || 'N/A'})`
       }));
   };
 
   const filteredEvents = events.filter(event => {
     const matchesSearch = event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           event.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = filterType === "all" || event.type === filterType;
+    const matchesType = filterType === "all" || event.event_type === filterType;
     return matchesSearch && matchesType;
   });
 
@@ -899,6 +1099,32 @@ export default function CollaborationHubPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
+      {/* Success Toast */}
+      {successMessage && (
+        <div className="fixed top-4 right-4 z-50 bg-emerald-500/20 border border-emerald-500/30 rounded-xl px-6 py-4 text-emerald-300 max-w-md shadow-lg backdrop-blur-sm animate-slide-in">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+            <span>{successMessage}</span>
+            <button onClick={() => setSuccessMessage(null)} className="ml-4 text-emerald-400 hover:text-emerald-300">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Error Toast */}
+      {error && (
+        <div className="fixed top-4 right-4 z-50 bg-red-500/20 border border-red-500/30 rounded-xl px-6 py-4 text-red-300 max-w-md shadow-lg backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="ml-4 text-red-400 hover:text-red-300">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-6 md:py-8">
@@ -961,7 +1187,9 @@ export default function CollaborationHubPage() {
               <Calendar className="w-4 h-4 text-purple-400" />
               <p className="text-purple-400 text-xs">Upcoming Events</p>
             </div>
-            <p className="text-2xl font-bold text-purple-400">{events.filter(e => e.status === "upcoming").length}</p>
+            <p className="text-2xl font-bold text-purple-400">
+              {events.filter(e => e.status?.toLowerCase() === "upcoming").length}
+            </p>
           </div>
           <div className="bg-yellow-500/10 rounded-xl p-4 border border-yellow-500/20">
             <div className="flex items-center gap-2 mb-2">
@@ -1006,7 +1234,9 @@ export default function CollaborationHubPage() {
           >
             <Calendar className="w-4 h-4" />
             Events
-            <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full">{events.filter(e => e.status === "upcoming").length}</span>
+            <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full">
+              {events.filter(e => e.status?.toLowerCase() === "upcoming").length}
+            </span>
           </button>
           <button
             onClick={() => setActiveTab("notices")}
@@ -1142,13 +1372,9 @@ export default function CollaborationHubPage() {
                     className="bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500"
                   >
                     <option value="all">All Types</option>
-                    <option value="webinar">Webinar</option>
-                    <option value="workshop">Workshop</option>
-                    <option value="conference">Conference</option>
-                    <option value="networking">Networking</option>
-                    <option value="training">Training</option>
-                    <option value="meeting">Meeting</option>
-                    <option value="social">Social</option>
+                    {eventTypes.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
                   </select>
                   {canEdit() && (
                     <button
@@ -1167,15 +1393,15 @@ export default function CollaborationHubPage() {
                   <div key={event.id} className="bg-slate-700/30 rounded-xl border border-slate-600 p-4 hover:border-cyan-500/30 transition-all">
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex flex-wrap gap-1">
-                        <span className={`px-2 py-1 rounded-full text-xs ${getEventTypeColor(event.type)}`}>
-                          {event.type}
+                        <span className={`px-2 py-1 rounded-full text-xs ${getEventTypeColor(event.event_type)}`}>
+                          {event.event_type}
                         </span>
                         <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadge(event.status)}`}>
                           {event.status}
                         </span>
                       </div>
                       <span className="text-slate-400 text-sm">
-                        {event.registered}/{event.capacity} registered
+                        {event.registered_count || 0}/{event.capacity || 0} registered
                       </span>
                     </div>
                     <h4 className="text-white font-semibold">{event.title}</h4>
@@ -1185,15 +1411,15 @@ export default function CollaborationHubPage() {
                         <CalendarIcon className="w-4 h-4" />
                         {new Date(event.start_date).toLocaleString()} - {new Date(event.end_date).toLocaleString()}
                       </div>
-                      {event.location && (
+                      {(event.location || event.venue) && (
                         <div className="flex items-center gap-2">
                           <MapPinIcon className="w-4 h-4" />
-                          {event.location}
+                          {event.location || event.venue}
                         </div>
                       )}
-                      {event.virtual_link && (
+                      {event.meeting_link && (
                         <a
-                          href={event.virtual_link}
+                          href={event.meeting_link}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
@@ -1202,7 +1428,7 @@ export default function CollaborationHubPage() {
                         </a>
                       )}
                     </div>
-                    {event.status !== "completed" && event.status !== "cancelled" && (
+                    {event.status?.toLowerCase() !== "completed" && event.status?.toLowerCase() !== "cancelled" && (
                       <button
                         onClick={() => handleRegisterForEvent(event.id)}
                         className="mt-4 w-full py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white transition-colors text-sm"
@@ -1273,7 +1499,7 @@ export default function CollaborationHubPage() {
                           <span>Posted {new Date(notice.created_at).toLocaleDateString()}</span>
                           <span className="flex items-center gap-1">
                             <Eye className="w-3 h-3" />
-                            {notice.read_count} views
+                            {notice.read_count || 0} views
                           </span>
                           {notice.expires_at && (
                             <span>Expires {new Date(notice.expires_at).toLocaleDateString()}</span>
@@ -1345,13 +1571,15 @@ export default function CollaborationHubPage() {
                           <div className="flex gap-2 flex-shrink-0">
                             <button
                               onClick={() => handleRespondToRequest(request.id, true)}
-                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-white text-sm transition-colors"
+                              disabled={submitting}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-white text-sm transition-colors disabled:opacity-50"
                             >
                               Accept
                             </button>
                             <button
                               onClick={() => handleRespondToRequest(request.id, false)}
-                              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-white text-sm transition-colors"
+                              disabled={submitting}
+                              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-white text-sm transition-colors disabled:opacity-50"
                             >
                               Decline
                             </button>
@@ -1473,7 +1701,7 @@ export default function CollaborationHubPage() {
                 className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {inviting ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
@@ -1486,7 +1714,7 @@ export default function CollaborationHubPage() {
         </div>
       )}
 
-      {/* Create Event Modal */}
+      {/* Create Event Modal - FIXED */}
       {showCreateEvent && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowCreateEvent(false)}>
           <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -1524,17 +1752,13 @@ export default function CollaborationHubPage() {
                 <div>
                   <label className="text-slate-400 text-sm block mb-2">Event Type *</label>
                   <select
-                    value={eventForm.type}
-                    onChange={(e) => setEventForm({ ...eventForm, type: e.target.value as Event["type"] })}
+                    value={eventForm.event_type}
+                    onChange={(e) => setEventForm({ ...eventForm, event_type: e.target.value })}
                     className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
                   >
-                    <option value="webinar">Webinar</option>
-                    <option value="workshop">Workshop</option>
-                    <option value="conference">Conference</option>
-                    <option value="networking">Networking</option>
-                    <option value="training">Training</option>
-                    <option value="meeting">Meeting</option>
-                    <option value="social">Social</option>
+                    {eventTypes.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -1579,28 +1803,55 @@ export default function CollaborationHubPage() {
                 />
               </div>
               <div>
-                <label className="text-slate-400 text-sm block mb-2">Virtual Link</label>
+                <label className="text-slate-400 text-sm block mb-2">Venue</label>
+                <input
+                  type="text"
+                  value={eventForm.venue}
+                  onChange={(e) => setEventForm({ ...eventForm, venue: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400"
+                  placeholder="Specific venue name"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Virtual Meeting Link</label>
                 <input
                   type="url"
-                  value={eventForm.virtual_link}
-                  onChange={(e) => setEventForm({ ...eventForm, virtual_link: e.target.value })}
+                  value={eventForm.meeting_link}
+                  onChange={(e) => setEventForm({ ...eventForm, meeting_link: e.target.value })}
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400"
                   placeholder="https://meet.example.com/event"
                 />
               </div>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-slate-300 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={eventForm.is_virtual}
+                    onChange={(e) => setEventForm({ ...eventForm, is_virtual: e.target.checked })}
+                  />
+                  Virtual Event
+                </label>
+              </div>
               <button
                 onClick={handleCreateEvent}
-                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2"
+                disabled={submitting}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                <Calendar className="w-4 h-4" />
-                Create Event
+                {submitting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Calendar className="w-4 h-4" />
+                    Create Event
+                  </>
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Create Notice Modal */}
+      {/* Create Notice Modal - FIXED */}
       {showCreateNotice && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowCreateNotice(false)}>
           <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -1675,7 +1926,10 @@ export default function CollaborationHubPage() {
                 <label className="flex items-center gap-2 text-slate-300 text-sm">
                   <input
                     type="checkbox"
-                    onChange={(e) => setNoticeForm({ ...noticeForm, expires_at: e.target.checked ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : "" })}
+                    onChange={(e) => setNoticeForm({ 
+                      ...noticeForm, 
+                      expires_at: e.target.checked ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : "" 
+                    })}
                   />
                   Set expiration date
                 </label>
@@ -1693,17 +1947,24 @@ export default function CollaborationHubPage() {
               )}
               <button
                 onClick={handleCreateNotice}
-                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2"
+                disabled={submitting}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                <Megaphone className="w-4 h-4" />
-                Post Notice
+                {submitting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Megaphone className="w-4 h-4" />
+                    Post Notice
+                  </>
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Collaboration Modal */}
+      {/* Collaboration Modal - FIXED */}
       {showCollaborationModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowCollaborationModal(false)}>
           <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -1729,13 +1990,16 @@ export default function CollaborationHubPage() {
                     <option key={org.value} value={org.value}>{org.label}</option>
                   ))}
                 </select>
+                {!getPartnerOptions().length && (
+                  <p className="text-slate-500 text-xs mt-1">No other organizations available to collaborate with</p>
+                )}
               </div>
               
               <div>
                 <label className="text-slate-400 text-sm block mb-2">Type of Collaboration *</label>
                 <select
                   value={collaborationForm.partnership_type}
-                  onChange={(e) => setCollaborationForm({ ...collaborationForm, partnership_type: e.target.value as CollaborationRequest["partnership_type"] })}
+                  onChange={(e) => setCollaborationForm({ ...collaborationForm, partnership_type: e.target.value })}
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
                 >
                   <option value="partnership">Partnership</option>
@@ -1821,10 +2085,17 @@ export default function CollaborationHubPage() {
 
               <button
                 onClick={handleSendCollaborationRequest}
-                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2"
+                disabled={submitting || !collaborationForm.partner_organization_id}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Send className="w-4 h-4" />
-                Send Collaboration Request
+                {submitting ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Send Collaboration Request
+                  </>
+                )}
               </button>
             </div>
           </div>

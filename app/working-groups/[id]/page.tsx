@@ -2,9 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getOrCreateConversation } from "@/lib/chat-utils";
 import { useParams, useRouter } from "next/navigation";
-import { useWorkingGroupChat } from "@/hooks/useWorkingGroupChat";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import {
@@ -50,8 +48,6 @@ interface WorkingGroup {
   progress: number;
   created_by: string;
   created_at: string;
-  timeline?: string;
-  deliverables?: string[];
 }
 
 interface Member {
@@ -61,8 +57,6 @@ interface Member {
   email: string;
   role: string;
   joined_at: string;
-  tasks_completed?: number;
-  tasks_in_progress?: number;
 }
 
 interface Activity {
@@ -90,16 +84,6 @@ interface Comment {
   user_id: string;
   full_name: string;
   comment: string;
-  created_at: string;
-}
-
-interface TaskUpdate {
-  id: string;
-  activity_id: string;
-  user_id: string;
-  user_name: string;
-  update_type: "progress" | "status" | "comment" | "attachment";
-  message: string;
   created_at: string;
 }
 
@@ -136,11 +120,38 @@ export default function WorkingGroupDetailPage() {
   const [comment, setComment] = useState("");
   const [comments, setComments] = useState<Record<string, Comment[]>>({});
   const [updateProgress, setUpdateProgress] = useState<Record<string, number>>({});
-  const [taskUpdates, setTaskUpdates] = useState<Record<string, TaskUpdate[]>>({});
   const [showTaskDetails, setShowTaskDetails] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"board" | "list">("board");
   const [isLoading, setIsLoading] = useState(true);
+
+  // ============================================
+  // FIXED: Define missing computed variables
+  // ============================================
+  
+  // Check if user can access the group
+  const canAccess = isMember || userRole === "Lead" || userRole === "Co-Lead";
+  
+  // Check if user can manage the group (add/remove members, change roles)
+  const canManageGroup = userRole === "Lead" || userRole === "Co-Lead";
+  
+  // Check if user can add activities
+  const canAddActivities = isMember || canManageGroup;
+  
+  // Filtered activities based on status filter
+  const filteredActivities = statusFilter === "all" 
+    ? activities 
+    : activities.filter(a => a.status === statusFilter);
+
+  // Get member stats function
+  const getMemberStats = (userId: string) => {
+    const userActivities = activities.filter(a => a.assigned_to === userId);
+    return {
+      total: userActivities.length,
+      completed: userActivities.filter(a => a.status === "Completed").length,
+      inProgress: userActivities.filter(a => a.status === "In Progress" || a.status === "Under Review").length,
+    };
+  };
 
   // Status colors
   const statusColors: Record<string, string> = {
@@ -173,13 +184,11 @@ export default function WorkingGroupDetailPage() {
   const checkAuth = async () => {
     setIsLoading(true);
     try {
-      // First check localStorage
       const userStr = localStorage.getItem("user");
       
       if (userStr) {
         try {
           const userData = JSON.parse(userStr);
-          console.log("✅ User found in localStorage:", userData);
           setUser(userData);
           setIsLoading(false);
           await fetchGroupData(userData);
@@ -189,7 +198,6 @@ export default function WorkingGroupDetailPage() {
         }
       }
 
-      // Check Supabase session
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError || !session) {
@@ -197,7 +205,6 @@ export default function WorkingGroupDetailPage() {
         return;
       }
 
-      // Get user profile
       const { data: profile, error: profileError } = await supabase
         .from("users")
         .select("*")
@@ -209,7 +216,6 @@ export default function WorkingGroupDetailPage() {
         return;
       }
 
-      // Cache in localStorage
       localStorage.setItem("user", JSON.stringify(profile));
       setUser(profile);
       setIsLoading(false);
@@ -221,19 +227,10 @@ export default function WorkingGroupDetailPage() {
     }
   };
 
-  const {
-    conversationId: groupChatId,
-    messages: groupMessages,
-    loading: chatLoading,
-    sendGroupMessage,
-    participants: chatParticipants,
-  } = useWorkingGroupChat(groupId, user?.id, userRole);
 
   const fetchGroupData = async (currentUser?: any) => {
     setLoading(true);
     try {
-      console.log("🔍 Fetching group data for ID:", groupId);
-  
       // Fetch group details
       const { data: groupData, error: groupError } = await supabase
         .from("working_groups")
@@ -241,86 +238,76 @@ export default function WorkingGroupDetailPage() {
         .eq("id", groupId)
         .single();
   
-      if (groupError) {
-        console.error("❌ Group error:", groupError);
-        throw groupError;
-      }
+      if (groupError) throw groupError;
       setGroup(groupData);
-      console.log("✅ Group found:", groupData);
   
-      // Fetch members WITHOUT join first
-      console.log("🔍 Fetching members for group:", groupId);
+      // Fetch members - FIXED: Use a simpler approach
       const { data: membersData, error: membersError } = await supabase
         .from("working_group_members")
         .select("*")
         .eq("working_group_id", groupId);
   
-      if (membersError) {
-        console.error("❌ Members error:", membersError);
-        throw membersError;
-      }
+      if (membersError) throw membersError;
   
-      console.log("✅ Members found:", membersData?.length || 0);
-      console.log("📋 Members data:", membersData);
-  
-      // If members exist, fetch user details separately
       let formattedMembers: Member[] = [];
       if (membersData && membersData.length > 0) {
+        // Get all user IDs
         const userIds = membersData.map(m => m.user_id).filter(id => id);
-        let usersMap: Record<string, any> = {};
         
         if (userIds.length > 0) {
+          // Fetch user details separately
           const { data: usersData, error: usersError } = await supabase
             .from("users")
             .select("id, full_name, email")
             .in("id", userIds);
-          
-          if (!usersError && usersData) {
-            usersMap = usersData.reduce((acc: any, user: any) => {
-              acc[user.id] = user;
-              return acc;
-            }, {});
-            console.log("✅ Users found:", usersData.length);
+  
+          if (usersError) {
+            console.error("Error fetching users:", usersError);
+            // If users table doesn't exist, use member data directly
+            formattedMembers = membersData.map((m: any) => ({
+              id: m.id,
+              user_id: m.user_id,
+              full_name: m.user_id || 'Unknown User', // Fallback
+              email: '',
+              role: m.role || 'Member',
+              joined_at: m.joined_at,
+            }));
           } else {
-            console.error("❌ Users error:", usersError);
+            // Create a map of user data
+            const userMap = new Map();
+            usersData?.forEach((user: any) => {
+              userMap.set(user.id, user);
+            });
+  
+            formattedMembers = membersData.map((m: any) => {
+              const user = userMap.get(m.user_id);
+              return {
+                id: m.id,
+                user_id: m.user_id,
+                full_name: user?.full_name || 'Unknown User',
+                email: user?.email || '',
+                role: m.role || 'Member',
+                joined_at: m.joined_at,
+              };
+            });
           }
         }
-  
-        formattedMembers = membersData.map(m => ({
-          id: m.id,
-          user_id: m.user_id,
-          full_name: usersMap[m.user_id]?.full_name || 'Unknown',
-          email: usersMap[m.user_id]?.email || '',
-          role: m.role || 'Member',
-          joined_at: m.joined_at,
-          tasks_completed: 0,
-          tasks_in_progress: 0,
-        }));
         
         setMembers(formattedMembers);
-        console.log("✅ Formatted members:", formattedMembers);
       } else {
         setMembers([]);
-        console.log("⚠️ No members found");
       }
   
       // Fetch activities
-      console.log("🔍 Fetching activities for group:", groupId);
       const { data: activitiesData, error: activitiesError } = await supabase
         .from("working_group_activities")
         .select("*")
         .eq("working_group_id", groupId)
         .order("due_date", { ascending: true, nullsFirst: false });
   
-      if (activitiesError) {
-        console.error("❌ Activities error:", activitiesError);
-        throw activitiesError;
-      }
+      if (activitiesError) throw activitiesError;
   
-      console.log("✅ Activities found:", activitiesData?.length || 0);
-      console.log("📋 Activities data:", activitiesData);
-  
-      // Get assignee and creator names separately
+      // Get assignee and creator names
       const activitiesWithNames = await Promise.all(
         (activitiesData || []).map(async (activity) => {
           let assignedToName = "Unassigned";
@@ -331,7 +318,7 @@ export default function WorkingGroupDetailPage() {
               .from("users")
               .select("full_name")
               .eq("id", activity.assigned_to)
-              .single();
+              .maybeSingle();
             assignedToName = assignee?.full_name || "Unassigned";
           }
   
@@ -340,7 +327,7 @@ export default function WorkingGroupDetailPage() {
               .from("users")
               .select("full_name")
               .eq("id", activity.created_by)
-              .single();
+              .maybeSingle();
             createdByName = creator?.full_name || "Unknown";
           }
   
@@ -355,7 +342,6 @@ export default function WorkingGroupDetailPage() {
       );
   
       setActivities(activitiesWithNames);
-      console.log("✅ Activities with names:", activitiesWithNames.length);
   
       // Find current user's role and membership status
       const currentMember = formattedMembers.find(m => m.user_id === currentUser?.id);
@@ -371,17 +357,15 @@ export default function WorkingGroupDetailPage() {
           .eq("group_id", groupId)
           .eq("user_id", currentUser.id)
           .eq("status", "pending")
-          .maybeSingle(); // Use maybeSingle to avoid errors if no request exists
+          .maybeSingle();
         
         if (!requestError) {
           setHasPendingRequest(!!requestData);
-        } else {
-          console.error("❌ Request error:", requestError);
         }
       }
   
     } catch (error) {
-      console.error("❌ Error fetching group data:", error);
+      console.error("Error fetching group data:", error);
     } finally {
       setLoading(false);
     }
@@ -415,21 +399,38 @@ export default function WorkingGroupDetailPage() {
   };
 
   const searchUsers = async () => {
-    if (!searchEmail) return;
+    if (!searchEmail || searchEmail.length < 2) {
+      setSearchResults([]);
+      return;
+    }
 
-    const { data, error } = await supabase
-      .from("users")
-      .select("id, full_name, email")
-      .ilike("email", `%${searchEmail}%`)
-      .limit(5);
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("id, full_name, email")
+        .ilike("email", `%${searchEmail}%`)
+        .limit(5);
 
-    if (!error && data) {
-      setSearchResults(data);
+      if (error) throw error;
+      
+      const memberIds = members.map(m => m.user_id);
+      const filteredResults = data?.filter(user => !memberIds.includes(user.id)) || [];
+      setSearchResults(filteredResults);
+      
+      if (filteredResults.length === 0) {
+        alert("No users found. Try a different email or the user might already be a member.");
+      }
+    } catch (error) {
+      console.error("Search error:", error);
+      alert("Failed to search users. Please try again.");
     }
   };
 
   const addMember = async () => {
-    if (!selectedUser) return;
+    if (!selectedUser) {
+      alert("Please select a user first");
+      return;
+    }
 
     setAddingMember(true);
     try {
@@ -438,19 +439,31 @@ export default function WorkingGroupDetailPage() {
         .insert({
           working_group_id: groupId,
           user_id: selectedUser.id,
-          role: selectedRole,
+          role: selectedRole || "Member",
+          joined_at: new Date().toISOString(),
         });
 
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes("duplicate key")) {
+          alert(`${selectedUser.full_name} is already a member of this group.`);
+        } else {
+          alert("Failed to add member: " + error.message);
+        }
+        setAddingMember(false);
+        return;
+      }
 
+      alert(`${selectedUser.full_name} added successfully!`);
       setShowAddMember(false);
       setSelectedUser(null);
       setSearchEmail("");
+      setSearchResults([]);
       setSelectedRole("Member");
-      fetchGroupData(user);
-    } catch (error) {
+      await fetchGroupData(user);
+      
+    } catch (error: any) {
       console.error("Error adding member:", error);
-      alert("Failed to add member");
+      alert("Failed to add member: " + (error.message || "Unknown error"));
     } finally {
       setAddingMember(false);
     }
@@ -464,7 +477,7 @@ export default function WorkingGroupDetailPage() {
         .eq("id", memberId);
 
       if (error) throw error;
-      fetchGroupData(user);
+      await fetchGroupData(user);
     } catch (error) {
       console.error("Error updating role:", error);
       alert("Failed to update role");
@@ -481,7 +494,7 @@ export default function WorkingGroupDetailPage() {
         .eq("id", memberId);
 
       if (error) throw error;
-      fetchGroupData(user);
+      await fetchGroupData(user);
     } catch (error) {
       console.error("Error removing member:", error);
       alert("Failed to remove member");
@@ -489,7 +502,10 @@ export default function WorkingGroupDetailPage() {
   };
 
   const addActivity = async () => {
-    if (!newActivity.title) return;
+    if (!newActivity.title) {
+      alert("Please enter a title");
+      return;
+    }
 
     setAddingActivity(true);
     try {
@@ -506,53 +522,34 @@ export default function WorkingGroupDetailPage() {
           status: "Not Started",
           progress: 0,
           created_by: user?.id,
+          created_at: new Date().toISOString(),
         });
 
       if (error) throw error;
 
       setShowAddActivity(false);
       setNewActivity({ title: "", description: "", assigned_to: "", due_date: "", priority: "Medium", estimated_hours: 0 });
-      fetchGroupData(user);
+      await fetchGroupData(user);
     } catch (error) {
       console.error("Error adding activity:", error);
-      alert("Failed to add activity");
+      alert("Failed to add activity: " + (error as any).message);
     } finally {
       setAddingActivity(false);
     }
   };
 
-  const updateActivityProgress = async (activityId: string, progress: number, status?: string) => {
+  const updateActivityProgress = async (activityId: string, progress: number) => {
     try {
       const updates: any = { progress };
       
-      if (status) {
-        updates.status = status;
-        if (status === "Completed") {
-          updates.completed_at = new Date().toISOString();
-        }
+      if (progress >= 100) {
+        updates.status = "Completed";
+        updates.completed_at = new Date().toISOString();
+      } else if (progress > 0) {
+        updates.status = "In Progress";
       } else {
-        // Auto-update status based on progress
-        if (progress >= 100) {
-          updates.status = "Completed";
-          updates.completed_at = new Date().toISOString();
-        } else if (progress > 0) {
-          updates.status = "In Progress";
-        } else {
-          updates.status = "Not Started";
-        }
+        updates.status = "Not Started";
       }
-
-      // Add to task updates
-      await supabase
-        .from("task_updates")
-        .insert({
-          activity_id: activityId,
-          user_id: user?.id,
-          user_name: user?.full_name || "Unknown",
-          update_type: "progress",
-          message: `Progress updated to ${progress}%`,
-          created_at: new Date().toISOString(),
-        });
 
       const { error } = await supabase
         .from("working_group_activities")
@@ -561,12 +558,11 @@ export default function WorkingGroupDetailPage() {
 
       if (error) throw error;
       
-      // Update group progress
       await updateGroupProgress();
-      
-      fetchGroupData(user);
+      await fetchGroupData(user);
     } catch (error) {
       console.error("Error updating progress:", error);
+      alert("Failed to update progress");
     }
   };
 
@@ -591,40 +587,6 @@ export default function WorkingGroupDetailPage() {
     }
   };
 
-  const addComment = async (activityId: string) => {
-    if (!comment.trim()) return;
-
-    try {
-      // Add comment
-      const { error } = await supabase
-        .from("activity_comments")
-        .insert({
-          activity_id: activityId,
-          user_id: user?.id,
-          comment: comment,
-        });
-
-      if (error) throw error;
-
-      // Add to task updates
-      await supabase
-        .from("task_updates")
-        .insert({
-          activity_id: activityId,
-          user_id: user?.id,
-          user_name: user?.full_name || "Unknown",
-          update_type: "comment",
-          message: comment,
-          created_at: new Date().toISOString(),
-        });
-
-      setComment("");
-      fetchComments(activityId);
-    } catch (error) {
-      console.error("Error adding comment:", error);
-    }
-  };
-
   const updateActivityStatus = async (activityId: string, status: string) => {
     try {
       const { error } = await supabase
@@ -636,71 +598,127 @@ export default function WorkingGroupDetailPage() {
         .eq("id", activityId);
 
       if (error) throw error;
-      fetchGroupData(user);
+      await fetchGroupData(user);
     } catch (error) {
       console.error("Error updating status:", error);
+      alert("Failed to update status");
+    }
+  };
+
+  const addComment = async (activityId: string) => {
+    if (!comment.trim()) {
+      alert("Please enter a comment");
+      return;
+    }
+
+    if (!user) {
+      alert("Please login to comment");
+      return;
+    }
+
+    try {
+      console.log("📝 Adding comment for activity:", activityId);
+      console.log("📝 User:", user.id, user.full_name);
+      console.log("📝 Comment:", comment.trim());
+      
+      const { data, error } = await supabase
+        .from("activity_comments")
+        .insert({
+          activity_id: activityId,
+          user_id: user.id,
+          comment: comment.trim(),
+          created_at: new Date().toISOString(),
+        })
+        .select();
+
+      if (error) {
+        console.error("❌ Comment error:", error);
+        alert("Failed to add comment: " + error.message);
+        return;
+      }
+
+      console.log("✅ Comment added:", data);
+      setComment("");
+      await fetchComments(activityId);
+      
+    } catch (error) {
+      console.error("❌ Error adding comment:", error);
+      alert("Failed to add comment. Please try again.");
     }
   };
 
   const fetchComments = async (activityId: string) => {
-    const { data, error } = await supabase
-      .from("activity_comments")
-      .select(`
-        *,
-        users!inner (full_name)
-      `)
-      .eq("activity_id", activityId)
-      .order("created_at", { ascending: true });
+    try {
+      console.log("🔍 Fetching comments for activity:", activityId);
+      
+      const { data: memberCheck, error: memberError } = await supabase
+        .from("working_group_members")
+        .select("id")
+        .eq("working_group_id", groupId)
+        .eq("user_id", user?.id)
+        .maybeSingle();
 
-    if (!error && data) {
+      if (memberError || !memberCheck) {
+        console.warn("User is not a member of this group");
+        setComments(prev => ({ ...prev, [activityId]: [] }));
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("activity_comments")
+        .select(`
+          id,
+          user_id,
+          comment,
+          created_at
+        `)
+        .eq("activity_id", activityId)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("❌ Comments fetch error:", error);
+        setComments(prev => ({ ...prev, [activityId]: [] }));
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        setComments(prev => ({ ...prev, [activityId]: [] }));
+        return;
+      }
+
+      const userIds = [...new Set(data.map(c => c.user_id).filter(id => id))];
+      
+      let usersMap: Record<string, string> = {};
+      if (userIds.length > 0) {
+        const { data: usersData, error: usersError } = await supabase
+          .from("users")
+          .select("id, full_name")
+          .in("id", userIds);
+
+        if (!usersError && usersData) {
+          usersMap = usersData.reduce((acc: any, user: any) => {
+            acc[user.id] = user.full_name;
+            return acc;
+          }, {});
+        }
+      }
+
       const formattedComments = data.map(c => ({
         id: c.id,
         user_id: c.user_id,
-        full_name: c.users.full_name,
+        full_name: usersMap[c.user_id] || "Unknown User",
         comment: c.comment,
         created_at: c.created_at,
       }));
+      
+      console.log("✅ Comments loaded:", formattedComments.length);
+      console.log("📋 Comments data:", formattedComments);
       setComments(prev => ({ ...prev, [activityId]: formattedComments }));
+      
+    } catch (error) {
+      console.error("❌ Error fetching comments:", error);
+      setComments(prev => ({ ...prev, [activityId]: [] }));
     }
-  };
-
-  const handleGroupChat = async () => {
-    if (!user) return;
-    const memberIds = members.map(m => m.user_id);
-    const convId = await getOrCreateConversation(user.id, memberIds, 'group');
-    if (convId) {
-      router.push(`/chat/group/${groupId}`);
-    }
-  };
-
-  const fetchTaskUpdates = async (activityId: string) => {
-    const { data, error } = await supabase
-      .from("task_updates")
-      .select("*")
-      .eq("activity_id", activityId)
-      .order("created_at", { ascending: false })
-      .limit(10);
-
-    if (!error && data) {
-      setTaskUpdates(prev => ({ ...prev, [activityId]: data }));
-    }
-  };
-
-  const canManageGroup = userRole === "Lead" || userRole === "Co-Lead" || user?.role === "Admin";
-  const canAccess = isMember || user?.role === "Admin";
-  const canAddActivities = canManageGroup;
-
-  // Filter activities
-  const filteredActivities = statusFilter === "all" 
-    ? activities 
-    : activities.filter(a => a.status === statusFilter);
-
-  // Get member stats
-  const getMemberStats = (memberId: string) => {
-    const memberActivities = activities.filter(a => a.assigned_to === memberId);
-    const completed = memberActivities.filter(a => a.status === "Completed").length;
-    const inProgress = memberActivities.filter(a => a.status === "In Progress" || a.status === "Under Review").length;
-    return { completed, inProgress, total: memberActivities.length };
   };
 
   // Show restricted access view
@@ -775,7 +793,6 @@ export default function WorkingGroupDetailPage() {
     );
   }
 
-  // If user cannot access, show restricted view
   if (!canAccess && !loading) {
     return showRestrictedAccess();
   }
@@ -796,15 +813,6 @@ export default function WorkingGroupDetailPage() {
               <p className="text-slate-300 text-sm md:text-base mt-2">{group.description}</p>
             </div>
             <div className="flex gap-2">
-              {isMember && (
-                <button
-                  onClick={handleGroupChat}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-xl text-white transition-colors"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  <span className="text-sm">Group Chat ({chatParticipants.length})</span>
-                </button>
-              )}
               {canManageGroup && (
                 <button
                   onClick={() => setShowAddMember(true)}
@@ -938,7 +946,6 @@ export default function WorkingGroupDetailPage() {
                   </h3>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {/* Status Filter */}
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
@@ -951,7 +958,6 @@ export default function WorkingGroupDetailPage() {
                     <option value="Completed">Completed</option>
                     <option value="Blocked">Blocked</option>
                   </select>
-                  {/* View Mode */}
                   <div className="flex bg-slate-700 rounded-lg p-1">
                     <button
                       onClick={() => setViewMode("board")}
@@ -1007,7 +1013,6 @@ export default function WorkingGroupDetailPage() {
                                 setSelectedActivity(activity);
                                 setShowTaskDetails(true);
                                 fetchComments(activity.id);
-                                fetchTaskUpdates(activity.id);
                               }}
                             >
                               <div className="flex justify-between items-start mb-1">
@@ -1034,6 +1039,10 @@ export default function WorkingGroupDetailPage() {
                                   Due: {new Date(activity.due_date).toLocaleDateString()}
                                 </p>
                               )}
+                              <div className="mt-1 text-slate-500 text-[10px] flex items-center gap-1">
+                                <MessageSquare className="w-3 h-3" />
+                                {(comments[activity.id] || []).length}
+                              </div>
                             </div>
                           ))}
                           {statusActivities.length === 0 && (
@@ -1051,6 +1060,8 @@ export default function WorkingGroupDetailPage() {
                 <div className="space-y-3">
                   {filteredActivities.map((activity) => {
                     const StatusIcon = statusIcons[activity.status] || ClipboardList;
+                    const commentCount = (comments[activity.id] || []).length;
+                    
                     return (
                       <div
                         key={activity.id}
@@ -1059,7 +1070,6 @@ export default function WorkingGroupDetailPage() {
                           setSelectedActivity(activity);
                           setShowTaskDetails(true);
                           fetchComments(activity.id);
-                          fetchTaskUpdates(activity.id);
                         }}
                       >
                         <div className="flex flex-wrap justify-between items-start gap-2">
@@ -1083,7 +1093,10 @@ export default function WorkingGroupDetailPage() {
                             <span>📅 {new Date(activity.due_date).toLocaleDateString()}</span>
                           )}
                           <span>📊 {activity.progress}%</span>
-                          <span>💬 {(comments[activity.id] || []).length}</span>
+                          <span className="flex items-center gap-1">
+                            <MessageSquare className="w-3 h-3" />
+                            {commentCount}
+                          </span>
                         </div>
                         <div className="w-full bg-slate-700 rounded-full h-1.5 mt-2">
                           <div 
@@ -1119,7 +1132,7 @@ export default function WorkingGroupDetailPage() {
       {showTaskDetails && selectedActivity && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowTaskDetails(false)}>
           <div className="bg-slate-800 rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-slate-700">
+            <div className="p-6 border-b border-slate-700 sticky top-0 bg-slate-800 z-10">
               <div className="flex justify-between items-start">
                 <div>
                   <h2 className="text-2xl font-bold text-white">{selectedActivity.title}</h2>
@@ -1222,23 +1235,33 @@ export default function WorkingGroupDetailPage() {
                   Comments ({comments[selectedActivity.id]?.length || 0})
                 </h4>
                 <div className="space-y-2 max-h-40 overflow-y-auto mb-3">
-                  {(comments[selectedActivity.id] || []).map((comment) => (
-                    <div key={comment.id} className="bg-slate-700/30 rounded-lg p-2">
-                      <div className="flex justify-between items-start">
-                        <span className="text-cyan-400 text-xs font-medium">{comment.full_name}</span>
-                        <span className="text-slate-500 text-xs">{new Date(comment.created_at).toLocaleString()}</span>
+                  {(comments[selectedActivity.id] || []).length === 0 ? (
+                    <p className="text-slate-500 text-sm text-center py-4">No comments yet. Start the conversation!</p>
+                  ) : (
+                    (comments[selectedActivity.id] || []).map((comment) => (
+                      <div key={comment.id} className="bg-slate-700/30 rounded-lg p-3">
+                        <div className="flex justify-between items-start">
+                          <span className="text-cyan-400 text-xs font-medium">
+                            {comment.full_name || "Unknown User"}
+                            {comment.user_id === user?.id && (
+                              <span className="ml-2 text-emerald-400 text-[10px]">(You)</span>
+                            )}
+                          </span>
+                          <span className="text-slate-500 text-xs">{new Date(comment.created_at).toLocaleString()}</span>
+                        </div>
+                        <p className="text-slate-300 text-sm mt-1">{comment.comment}</p>
                       </div>
-                      <p className="text-slate-300 text-sm mt-1">{comment.comment}</p>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
+                {/* Input for new comment */}
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
                     placeholder="Add a comment..."
-                    className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"
+                    className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500"
                     onKeyPress={(e) => e.key === "Enter" && addComment(selectedActivity.id)}
                   />
                   <button
@@ -1257,10 +1280,13 @@ export default function WorkingGroupDetailPage() {
       {/* Add Member Modal */}
       {showAddMember && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowAddMember(false)}>
-          <div className="bg-slate-800 rounded-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-slate-700">
+          <div className="bg-slate-800 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700 sticky top-0 bg-slate-800 z-10">
               <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-white">Add Member</h2>
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <UserPlus className="w-6 h-6 text-cyan-400" />
+                  Add Member
+                </h2>
                 <button onClick={() => setShowAddMember(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
               </div>
             </div>
@@ -1271,8 +1297,14 @@ export default function WorkingGroupDetailPage() {
                   <input
                     type="email"
                     value={searchEmail}
-                    onChange={(e) => setSearchEmail(e.target.value)}
-                    className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                    onChange={(e) => {
+                      setSearchEmail(e.target.value);
+                      if (!e.target.value) {
+                        setSearchResults([]);
+                        setSelectedUser(null);
+                      }
+                    }}
+                    className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                     placeholder="user@example.com"
                   />
                   <button
@@ -1282,24 +1314,40 @@ export default function WorkingGroupDetailPage() {
                     Search
                   </button>
                 </div>
+                <p className="text-slate-500 text-xs mt-1">Enter at least 2 characters to search</p>
               </div>
 
               {searchResults.length > 0 && (
-                <div className="space-y-2">
-                  {searchResults.map((result) => (
-                    <div
-                      key={result.id}
-                      className={`p-3 rounded-xl cursor-pointer transition-colors ${
-                        selectedUser?.id === result.id
-                          ? "bg-cyan-600/20 border border-cyan-500/30"
-                          : "bg-slate-700/30 hover:bg-slate-700/50"
-                      }`}
-                      onClick={() => setSelectedUser(result)}
-                    >
-                      <p className="text-white font-medium">{result.full_name}</p>
-                      <p className="text-slate-400 text-sm">{result.email}</p>
-                    </div>
-                  ))}
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Select User</label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {searchResults.map((result) => (
+                      <div
+                        key={result.id}
+                        className={`p-3 rounded-xl cursor-pointer transition-colors ${
+                          selectedUser?.id === result.id
+                            ? "bg-cyan-600/20 border border-cyan-500/30"
+                            : "bg-slate-700/30 hover:bg-slate-700/50"
+                        }`}
+                        onClick={() => setSelectedUser(result)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
+                            <span className="text-cyan-400 font-bold">
+                              {result.full_name?.charAt(0) || '?'}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="text-white font-medium">{result.full_name}</p>
+                            <p className="text-slate-400 text-sm">{result.email}</p>
+                          </div>
+                          {selectedUser?.id === result.id && (
+                            <CheckCircle className="w-5 h-5 text-emerald-400 ml-auto" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -1309,21 +1357,34 @@ export default function WorkingGroupDetailPage() {
                   <select
                     value={selectedRole}
                     onChange={(e) => setSelectedRole(e.target.value)}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                   >
                     <option value="Member">Member</option>
                     <option value="Co-Lead">Co-Lead</option>
                     <option value="Lead">Lead</option>
                   </select>
+                  <p className="text-slate-500 text-xs mt-1">
+                    Selected: <span className="text-white">{selectedUser.full_name}</span>
+                  </p>
                 </div>
               )}
 
               <button
                 onClick={addMember}
                 disabled={!selectedUser || addingMember}
-                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors disabled:opacity-50"
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {addingMember ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Add Member"}
+                {addingMember ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Adding...
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-5 h-5" />
+                    Add Member
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -1333,21 +1394,25 @@ export default function WorkingGroupDetailPage() {
       {/* Add Activity Modal */}
       {showAddActivity && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowAddActivity(false)}>
-          <div className="bg-slate-800 rounded-2xl max-w-md w-full max-h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-slate-700 flex-shrink-0">
+          <div className="bg-slate-800 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700 sticky top-0 bg-slate-800 z-10">
               <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-white">Add Task</h2>
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <Target className="w-6 h-6 text-cyan-400" />
+                  Add Task
+                </h2>
                 <button onClick={() => setShowAddActivity(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
               </div>
             </div>
-            <div className="p-6 space-y-4 overflow-y-auto flex-1">
+            <div className="p-6 space-y-4">
               <div>
                 <label className="text-slate-400 text-sm block mb-2">Title *</label>
                 <input
                   type="text"
                   value={newActivity.title}
                   onChange={(e) => setNewActivity({ ...newActivity, title: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="Enter task title"
                 />
               </div>
               <div>
@@ -1356,7 +1421,8 @@ export default function WorkingGroupDetailPage() {
                   value={newActivity.description}
                   onChange={(e) => setNewActivity({ ...newActivity, description: e.target.value })}
                   rows={3}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
+                  placeholder="Describe the task..."
                 />
               </div>
               <div>
@@ -1364,7 +1430,7 @@ export default function WorkingGroupDetailPage() {
                 <select
                   value={newActivity.assigned_to}
                   onChange={(e) => setNewActivity({ ...newActivity, assigned_to: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                 >
                   <option value="">Unassigned</option>
                   {members.map((member) => (
@@ -1377,7 +1443,7 @@ export default function WorkingGroupDetailPage() {
                 <select
                   value={newActivity.priority}
                   onChange={(e) => setNewActivity({ ...newActivity, priority: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                 >
                   <option value="Low">Low</option>
                   <option value="Medium">Medium</option>
@@ -1391,7 +1457,7 @@ export default function WorkingGroupDetailPage() {
                   type="date"
                   value={newActivity.due_date}
                   onChange={(e) => setNewActivity({ ...newActivity, due_date: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                 />
               </div>
               <div>
@@ -1402,17 +1468,27 @@ export default function WorkingGroupDetailPage() {
                   step="0.5"
                   value={newActivity.estimated_hours}
                   onChange={(e) => setNewActivity({ ...newActivity, estimated_hours: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                 />
               </div>
             </div>
-            <div className="p-6 border-t border-slate-700 flex-shrink-0">
+            <div className="p-6 border-t border-slate-700 sticky bottom-0 bg-slate-800 z-10">
               <button
                 onClick={addActivity}
                 disabled={!newActivity.title || addingActivity}
-                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors disabled:opacity-50"
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {addingActivity ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Add Task"}
+                {addingActivity ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Adding...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-5 h-5" />
+                    Add Task
+                  </>
+                )}
               </button>
             </div>
           </div>

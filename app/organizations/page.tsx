@@ -1,4 +1,3 @@
-
 // app/organizations/page.tsx
 "use client";
 
@@ -165,20 +164,12 @@ interface JoinRequest {
 interface Report {
   id: string;
   title: string;
-  type: string;
+  report_type: string;
   status: string;
   created_at: string;
   file_url?: string;
   description?: string;
   submitted_by?: string;
-}
-
-interface Report {
-  id: string;
-  title: string;
-  type: string;
-  status: string;
-  created_at: string;
 }
 
 interface Collaboration {
@@ -232,18 +223,20 @@ interface Event {
   id: string;
   title: string;
   description: string;
-  type: string;
+  event_type: string;
   organization_id: string;
   organization_name: string;
   start_date: string;
   end_date: string;
   location: string;
-  virtual_link?: string;
+  venue: string;
+  meeting_link?: string;
   capacity: number;
-  registered: number;
+  registered_count: number;
   status: string;
   focus_areas: string[];
   created_at: string;
+  is_virtual: boolean;
 }
 
 interface ProjectCollaboration {
@@ -303,13 +296,12 @@ const resourceTypes = [
 ];
 
 const eventTypes = [
-  "webinar",
-  "workshop",
-  "conference",
-  "networking",
-  "training",
-  "meeting",
-  "social"
+  "Conference",
+  "Webinar",
+  "Workshop",
+  "Training",
+  "Summit",
+  "Networking"
 ];
 
 export default function OrganizationsDashboardPage() {
@@ -350,7 +342,7 @@ export default function OrganizationsDashboardPage() {
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Project Form State
+  // Project Form State - FIXED: Use organization_activities table
   const [projectForm, setProjectForm] = useState({
     title: "",
     description: "",
@@ -372,6 +364,11 @@ export default function OrganizationsDashboardPage() {
     type: "",
     file_url: "",
   });
+
+  // Collaboration search state
+  const [collaborationSearchTerm, setCollaborationSearchTerm] = useState("");
+  const [filteredPartnerOrgs, setFilteredPartnerOrgs] = useState<Organization[]>([]);
+
   // Resource Form State
   const [resourceForm, setResourceForm] = useState({
     title: "",
@@ -382,22 +379,36 @@ export default function OrganizationsDashboardPage() {
     tags: "",
   });
 
-  // Event Form State
+  // Event Form State - FIXED: Use correct field names
   const [eventForm, setEventForm] = useState({
     title: "",
     description: "",
-    type: "webinar",
+    event_type: "Webinar",
     start_date: "",
     end_date: "",
     location: "",
-    virtual_link: "",
+    venue: "",
+    meeting_link: "",
     capacity: 100,
+    is_virtual: false,
     focus_areas: [] as string[],
   });
 
   useEffect(() => {
     checkAuth();
   }, []);
+
+  // Filter partner organizations for collaboration
+  useEffect(() => {
+    if (selectedOrg) {
+      const filtered = organizations.filter(org => 
+        org.id !== selectedOrg.id && 
+        (org.name.toLowerCase().includes(collaborationSearchTerm.toLowerCase()) ||
+         org.country?.toLowerCase().includes(collaborationSearchTerm.toLowerCase()))
+      );
+      setFilteredPartnerOrgs(filtered);
+    }
+  }, [collaborationSearchTerm, organizations, selectedOrg]);
 
   const checkAuth = async () => {
     setIsLoading(true);
@@ -510,12 +521,11 @@ export default function OrganizationsDashboardPage() {
         memberOrgIds = new Set(orgIds);
 
         if (orgIds.length > 0) {
-          const idsString = orgIds.map(id => `"${id}"`).join(',');
           const { data, error } = await supabase
             .from("organizations")
             .select("*")
             .eq("status", "Approved")
-            .or(`id.in.(${idsString}),created_by.eq.${userData.id}`)
+            .in("id", orgIds)
             .order("name", { ascending: true });
 
           if (error) throw error;
@@ -598,6 +608,7 @@ export default function OrganizationsDashboardPage() {
         fetchEvents(orgId),
         fetchProjectCollaborations(orgId),
         fetchJoinRequests(orgId),
+        fetchReports(orgId),
       ]);
 
     } catch (error) {
@@ -654,16 +665,28 @@ export default function OrganizationsDashboardPage() {
     }
   };
 
+  // FIXED: Use organization_activities table instead of organization_projects
   const fetchProjects = async (orgId: string) => {
     try {
       const { data, error } = await supabase
-        .from("organization_projects")
+        .from("organization_activities")
         .select("*")
         .eq("organization_id", orgId)
         .order("created_at", { ascending: false });
 
       if (!error && data) {
-        setProjects(data);
+        // Map the data to match the Project interface
+        const mappedProjects = data.map((activity: any) => ({
+          id: activity.id,
+          title: activity.action || "Untitled Activity",
+          description: activity.details?.description || "",
+          status: activity.details?.status || "Planning",
+          budget: activity.details?.budget || 0,
+          start_date: activity.details?.start_date || activity.created_at,
+          end_date: activity.details?.end_date || "",
+          organization_id: activity.organization_id,
+        }));
+        setProjects(mappedProjects);
       } else {
         setProjects([]);
       }
@@ -732,6 +755,7 @@ export default function OrganizationsDashboardPage() {
     }
   };
 
+  // FIXED: Use correct column names from events table
   const fetchEvents = async (orgId: string) => {
     try {
       const { data, error } = await supabase
@@ -745,7 +769,28 @@ export default function OrganizationsDashboardPage() {
         setEvents([]);
         return;
       }
-      setEvents(data || []);
+      
+      // Map the data to match the Event interface
+      const mappedEvents = (data || []).map((event: any) => ({
+        id: event.id,
+        title: event.title,
+        description: event.description,
+        event_type: event.event_type,
+        organization_id: event.organization_id,
+        organization_name: event.organization_name,
+        start_date: event.start_date,
+        end_date: event.end_date,
+        location: event.location || event.venue,
+        venue: event.venue,
+        meeting_link: event.meeting_link,
+        capacity: event.capacity,
+        registered_count: event.registered_count || 0,
+        status: event.status,
+        focus_areas: event.focus_areas || [],
+        created_at: event.created_at,
+        is_virtual: event.is_virtual || false,
+      }));
+      setEvents(mappedEvents);
     } catch (error) {
       console.error("Error fetching events:", error);
       setEvents([]);
@@ -789,6 +834,27 @@ export default function OrganizationsDashboardPage() {
     } catch (error) {
       console.error("Error fetching join requests:", error);
       setJoinRequests([]);
+    }
+  };
+  
+  // Fetch reports
+  const fetchReports = async (orgId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("reports")
+        .select("*")
+        .eq("country", selectedOrg?.country || "")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.warn("Reports table not found:", error);
+        setReports([]);
+        return;
+      }
+      setReports(data || []);
+    } catch (error) {
+      console.error("Error fetching reports:", error);
+      setReports([]);
     }
   };
   
@@ -936,23 +1002,24 @@ export default function OrganizationsDashboardPage() {
   
     setSubmitting(true);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("reports")
         .insert({
           title: reportForm.title,
           description: reportForm.description,
-          report_type: reportForm.type,
+          report_type: reportForm.type || "General Report",
           country: selectedOrg.country,
           file_url: reportForm.file_url || null,
           submitted_by: user.id,
           status: "Pending",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        });
-  
+        })
+        .select();
+
       if (error) throw error;
   
-      setSuccessMessage("Report submitted successfully!");
+      setSuccessMessage("✅ Report submitted successfully!");
       setShowReportModal(false);
       setReportForm({
         title: "",
@@ -960,12 +1027,17 @@ export default function OrganizationsDashboardPage() {
         type: "",
         file_url: "",
       });
+      
+      // Refresh reports list
+      await fetchReports(selectedOrg.id);
+      
+      // Also refresh organization details
       await fetchOrganizationDetails(selectedOrg.id);
       
-      setTimeout(() => setSuccessMessage(null), 3000);
+      setTimeout(() => setSuccessMessage(null), 5000);
     } catch (error) {
       console.error("Error creating report:", error);
-      alert("Failed to create report");
+      alert("Failed to create report: " + (error as any).message);
     } finally {
       setSubmitting(false);
     }
@@ -1004,6 +1076,7 @@ export default function OrganizationsDashboardPage() {
       setLoading(false);
     }
   };
+
   // ============ HANDLERS ============
 
   const handleSelectOrganization = async (org: Organization) => {
@@ -1095,7 +1168,7 @@ export default function OrganizationsDashboardPage() {
     }
   };
 
-  // ============ CREATE PROJECT ============
+  // ============ CREATE PROJECT - FIXED: Use organization_activities ============
 
   const handleCreateProject = async () => {
     if (!projectForm.title) {
@@ -1111,17 +1184,19 @@ export default function OrganizationsDashboardPage() {
     setSubmitting(true);
     try {
       const { data, error } = await supabase
-        .from("organization_projects")
+        .from("organization_activities")
         .insert({
-          title: projectForm.title,
-          description: projectForm.description,
-          status: projectForm.status,
-          budget: projectForm.budget,
-          start_date: projectForm.start_date || null,
-          end_date: projectForm.end_date || null,
           organization_id: selectedOrg.id,
+          user_id: user?.id,
+          action: projectForm.title,
+          details: {
+            description: projectForm.description,
+            status: projectForm.status,
+            budget: projectForm.budget,
+            start_date: projectForm.start_date || null,
+            end_date: projectForm.end_date || null,
+          },
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
         })
         .select();
 
@@ -1132,7 +1207,7 @@ export default function OrganizationsDashboardPage() {
         return;
       }
 
-      setSuccessMessage("Project created successfully!");
+      setSuccessMessage("✅ Project created successfully!");
       setShowCreateProject(false);
       setProjectForm({
         title: "",
@@ -1192,7 +1267,7 @@ export default function OrganizationsDashboardPage() {
         return;
       }
 
-      setSuccessMessage("Resource shared successfully!");
+      setSuccessMessage("✅ Resource shared successfully!");
       setShowResourceModal(false);
       setResourceForm({
         title: "",
@@ -1213,7 +1288,7 @@ export default function OrganizationsDashboardPage() {
     }
   };
 
-  // ============ CREATE EVENT ============
+  // ============ CREATE EVENT - FIXED: Use correct column names ============
 
   const handleCreateEvent = async () => {
     if (!eventForm.title || !eventForm.start_date || !eventForm.end_date) {
@@ -1233,18 +1308,21 @@ export default function OrganizationsDashboardPage() {
         .insert({
           title: eventForm.title,
           description: eventForm.description,
-          type: eventForm.type,
+          event_type: eventForm.event_type,
           organization_id: selectedOrg.id,
           organization_name: selectedOrg.name,
           start_date: new Date(eventForm.start_date).toISOString(),
           end_date: new Date(eventForm.end_date).toISOString(),
           location: eventForm.location || null,
-          virtual_link: eventForm.virtual_link || null,
+          venue: eventForm.venue || null,
+          meeting_link: eventForm.meeting_link || null,
           capacity: eventForm.capacity || 100,
-          registered: 0,
-          status: new Date(eventForm.start_date) > new Date() ? "upcoming" : "ongoing",
+          registered_count: 0,
+          is_virtual: eventForm.is_virtual || false,
+          status: new Date(eventForm.start_date) > new Date() ? "Upcoming" : "Ongoing",
           focus_areas: eventForm.focus_areas || [],
           created_at: new Date().toISOString(),
+          approval_status: "Pending",
         })
         .select();
 
@@ -1255,17 +1333,19 @@ export default function OrganizationsDashboardPage() {
         return;
       }
 
-      setSuccessMessage("Event created successfully!");
+      setSuccessMessage("✅ Event created successfully!");
       setShowEventModal(false);
       setEventForm({
         title: "",
         description: "",
-        type: "webinar",
+        event_type: "Webinar",
         start_date: "",
         end_date: "",
         location: "",
-        virtual_link: "",
+        venue: "",
+        meeting_link: "",
         capacity: 100,
+        is_virtual: false,
         focus_areas: [],
       });
       await fetchEvents(selectedOrg.id);
@@ -1315,10 +1395,11 @@ export default function OrganizationsDashboardPage() {
         return;
       }
 
-      setSuccessMessage("Collaboration request sent successfully!");
+      setSuccessMessage("✅ Collaboration request sent successfully!");
       setShowCollaborationModal(false);
       setCollaborationMessage("");
       setSelectedPartner("");
+      setCollaborationSearchTerm("");
       await fetchCollaborationRequests(selectedOrg.id);
       
       setTimeout(() => setSuccessMessage(null), 3000);
@@ -1371,7 +1452,7 @@ export default function OrganizationsDashboardPage() {
       await fetchCollaborationRequests(selectedOrg?.id || "");
       await fetchCollaborations(selectedOrg?.id || "");
       
-      setSuccessMessage(accept ? "Collaboration request accepted!" : "Collaboration request declined.");
+      setSuccessMessage(accept ? "✅ Collaboration request accepted!" : "Collaboration request declined.");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error) {
       console.error("Error responding to request:", error);
@@ -1379,7 +1460,7 @@ export default function OrganizationsDashboardPage() {
     }
   };
 
-  // ============ REGISTER FOR EVENT ============
+  // ============ REGISTER FOR EVENT - FIXED: Use registered_count ============
 
   const handleRegisterForEvent = async (eventId: string) => {
     if (!user) {
@@ -1412,22 +1493,24 @@ export default function OrganizationsDashboardPage() {
           user_id: user.id,
           organization_id: selectedOrg?.id,
           registered_at: new Date().toISOString(),
+          registration_status: "Registered",
+          payment_status: "Pending",
         });
 
       if (error) throw error;
       
-      // Update registered count
+      // Update registered count - FIXED: Use registered_count
       const event = events.find(e => e.id === eventId);
       if (event) {
         const { error: updateError } = await supabase
           .from("events")
-          .update({ registered: (event.registered || 0) + 1 })
+          .update({ registered_count: (event.registered_count || 0) + 1 })
           .eq("id", eventId);
 
         if (updateError) throw updateError;
       }
 
-      setSuccessMessage("Successfully registered for the event!");
+      setSuccessMessage("✅ Successfully registered for the event!");
       await fetchEvents(selectedOrg?.id || "");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error) {
@@ -1453,16 +1536,16 @@ export default function OrganizationsDashboardPage() {
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "Active":
-      case "Published":
+    switch (status?.toLowerCase()) {
+      case "active":
+      case "published":
       case "upcoming":
         return "bg-emerald-500/20 text-emerald-400";
-      case "Planning":
-      case "Draft":
+      case "planning":
+      case "draft":
       case "ongoing":
         return "bg-yellow-500/20 text-yellow-400";
-      case "Completed":
+      case "completed":
         return "bg-blue-500/20 text-blue-400";
       default:
         return "bg-slate-500/20 text-slate-400";
@@ -1479,12 +1562,10 @@ export default function OrganizationsDashboardPage() {
   };
 
   const getPartnerOptions = () => {
-    return organizations
-      .filter(org => org.id !== selectedOrg?.id)
-      .map(org => ({
-        value: org.id,
-        label: `${org.name} (${org.country})`
-      }));
+    return filteredPartnerOrgs.map(org => ({
+      value: org.id,
+      label: `${org.name} (${org.country || 'N/A'})`
+    }));
   };
 
   const filteredOrganizations = organizations.filter(org => {
@@ -1505,21 +1586,21 @@ export default function OrganizationsDashboardPage() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-300">Loading organization data...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // app/organizations/page.tsx - Fixed return statement
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
+      {/* Success Toast */}
+      {successMessage && (
+        <div className="fixed top-4 right-4 z-50 bg-emerald-500/20 border border-emerald-500/30 rounded-xl px-6 py-4 text-emerald-300 max-w-md shadow-lg backdrop-blur-sm animate-slide-in">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+            <span>{successMessage}</span>
+            <button onClick={() => setSuccessMessage(null)} className="ml-4 text-emerald-400 hover:text-emerald-300">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-6 md:py-8">
@@ -2122,59 +2203,6 @@ export default function OrganizationsDashboardPage() {
                   </p>
                 )}
               </div>
-
-              {/* Project Collaborations */}
-              <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
-                <h3 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
-                  <GitBranch className="w-5 h-5 text-purple-400" />
-                  Joint Projects & Initiatives
-                </h3>
-                {projectCollaborations.length > 0 ? (
-                  <div className="space-y-4">
-                    {projectCollaborations.map((project) => (
-                      <div key={project.id} className="bg-slate-700/30 rounded-xl p-4 border border-slate-600">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="text-white font-semibold">{project.title}</h4>
-                            <p className="text-slate-400 text-sm mt-1">{project.description}</p>
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              <span className={`px-2 py-1 rounded-full text-xs ${
-                                project.status === "active" ? "bg-emerald-500/20 text-emerald-400" :
-                                project.status === "planning" ? "bg-yellow-500/20 text-yellow-400" :
-                                project.status === "completed" ? "bg-blue-500/20 text-blue-400" :
-                                "bg-slate-500/20 text-slate-400"
-                              }`}>
-                                {project.status}
-                              </span>
-                              <span className="text-xs bg-slate-600 text-slate-300 px-2 py-1 rounded-full">
-                                ${(project.budget / 1000).toFixed(0)}K
-                              </span>
-                            </div>
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {project.partner_names?.map((name, idx) => (
-                                <span key={idx} className="text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full">
-                                  {name}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-slate-400 text-xs">Lead: {project.lead_contact}</p>
-                            <p className="text-slate-500 text-xs mt-1">
-                              {new Date(project.start_date).toLocaleDateString()}
-                              {project.end_date && ` - ${new Date(project.end_date).toLocaleDateString()}`}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-slate-400 text-center py-8">
-                    No joint projects yet. Propose a collaboration to start working together!
-                  </p>
-                )}
-              </div>
             </div>
           )}
 
@@ -2276,24 +2304,20 @@ export default function OrganizationsDashboardPage() {
                     <div className="flex items-start justify-between mb-2">
                       <div>
                         <span className={`px-2 py-1 rounded-full text-xs ${
-                          event.type === "webinar" ? "bg-purple-500/20 text-purple-400" :
-                          event.type === "workshop" ? "bg-yellow-500/20 text-yellow-400" :
-                          event.type === "conference" ? "bg-blue-500/20 text-blue-400" :
-                          event.type === "networking" ? "bg-pink-500/20 text-pink-400" :
+                          event.event_type === "Webinar" ? "bg-purple-500/20 text-purple-400" :
+                          event.event_type === "Workshop" ? "bg-yellow-500/20 text-yellow-400" :
+                          event.event_type === "Conference" ? "bg-blue-500/20 text-blue-400" :
+                          event.event_type === "Networking" ? "bg-pink-500/20 text-pink-400" :
                           "bg-cyan-500/20 text-cyan-400"
                         }`}>
-                          {event.type}
+                          {event.event_type}
                         </span>
-                        <span className={`ml-2 px-2 py-1 rounded-full text-xs ${
-                          event.status === "upcoming" ? "bg-emerald-500/20 text-emerald-400" :
-                          event.status === "ongoing" ? "bg-yellow-500/20 text-yellow-400" :
-                          "bg-slate-500/20 text-slate-400"
-                        }`}>
+                        <span className={`ml-2 px-2 py-1 rounded-full text-xs ${getStatusBadge(event.status)}`}>
                           {event.status}
                         </span>
                       </div>
                       <span className="text-slate-400 text-sm">
-                        {event.registered}/{event.capacity} registered
+                        {event.registered_count || 0}/{event.capacity || 0} registered
                       </span>
                     </div>
                     <h4 className="text-white font-semibold">{event.title}</h4>
@@ -2303,15 +2327,15 @@ export default function OrganizationsDashboardPage() {
                         <Calendar className="w-4 h-4" />
                         {new Date(event.start_date).toLocaleString()} - {new Date(event.end_date).toLocaleString()}
                       </div>
-                      {event.location && (
+                      {(event.location || event.venue) && (
                         <div className="flex items-center gap-2">
                           <MapPin className="w-4 h-4" />
-                          {event.location}
+                          {event.location || event.venue}
                         </div>
                       )}
-                      {event.virtual_link && (
+                      {event.meeting_link && (
                         <a
-                          href={event.virtual_link}
+                          href={event.meeting_link}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
@@ -2335,37 +2359,50 @@ export default function OrganizationsDashboardPage() {
           {/* Reports Tab */}
           {activeTab === "reports" && selectedOrg && (
             <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
-              <h3 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-cyan-400" />
-                Reports & Publications
-              </h3>
-              <button
-                onClick={() => setShowReportModal(true)}
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                Submit Report
-              </button>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-white font-semibold text-lg flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-cyan-400" />
+                  Reports & Publications ({reports.length})
+                </h3>
+                <button
+                  onClick={() => setShowReportModal(true)}
+                  className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  Submit Report
+                </button>
+              </div>
               <div className="space-y-3">
-                {reports.map((report) => (
-                  <div key={report.id} className="bg-slate-700/30 rounded-xl p-3 flex justify-between items-center">
-                    <div>
-                      <p className="text-white font-medium">{report.title}</p>
-                      <p className="text-slate-400 text-sm">{report.type}</p>
+                {reports.length > 0 ? (
+                  reports.map((report) => (
+                    <div key={report.id} className="bg-slate-700/30 rounded-xl p-3 flex justify-between items-center">
+                      <div>
+                        <p className="text-white font-medium">{report.title}</p>
+                        <p className="text-slate-400 text-sm">{report.report_type || "General Report"}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadge(report.status)}`}>
+                          {report.status}
+                        </span>
+                        <span className="text-slate-500 text-xs">
+                          {new Date(report.created_at).toLocaleDateString()}
+                        </span>
+                        {report.file_url && (
+                          <a
+                            href={report.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 hover:bg-slate-600 rounded-lg transition-colors"
+                          >
+                            <Eye className="w-4 h-4 text-cyan-400" />
+                          </a>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadge(report.status)}`}>
-                        {report.status}
-                      </span>
-                      <span className="text-slate-500 text-xs">
-                        {new Date(report.created_at).toLocaleDateString()}
-                      </span>
-                      <button className="p-1.5 hover:bg-slate-600 rounded-lg transition-colors">
-                        <Eye className="w-4 h-4 text-slate-400" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="text-slate-400 text-center py-8">No reports submitted yet</p>
+                )}
               </div>
             </div>
           )}
@@ -2766,7 +2803,7 @@ export default function OrganizationsDashboardPage() {
         </div>
       )}
 
-      {/* ============ CREATE EVENT MODAL ============ */}
+      {/* ============ CREATE EVENT MODAL - FIXED ============ */}
       {showEventModal && selectedOrg && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowEventModal(false)}>
           <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -2804,12 +2841,12 @@ export default function OrganizationsDashboardPage() {
                 <div>
                   <label className="text-slate-400 text-sm block mb-2">Event Type *</label>
                   <select
-                    value={eventForm.type}
-                    onChange={(e) => setEventForm({ ...eventForm, type: e.target.value })}
+                    value={eventForm.event_type}
+                    onChange={(e) => setEventForm({ ...eventForm, event_type: e.target.value })}
                     className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
                   >
                     {eventTypes.map(type => (
-                      <option key={type} value={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>
+                      <option key={type} value={type}>{type}</option>
                     ))}
                   </select>
                 </div>
@@ -2845,7 +2882,7 @@ export default function OrganizationsDashboardPage() {
                 </div>
               </div>
               <div>
-                <label className="text-slate-400 text-sm block mb-2">Location</label>
+                <label className="text-slate-400 text-sm block mb-2">Location/Venue</label>
                 <input
                   type="text"
                   value={eventForm.location}
@@ -2855,14 +2892,33 @@ export default function OrganizationsDashboardPage() {
                 />
               </div>
               <div>
-                <label className="text-slate-400 text-sm block mb-2">Virtual Link</label>
+                <label className="text-slate-400 text-sm block mb-2">Venue</label>
+                <input
+                  type="text"
+                  value={eventForm.venue}
+                  onChange={(e) => setEventForm({ ...eventForm, venue: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="Specific venue name"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Virtual Meeting Link</label>
                 <input
                   type="url"
-                  value={eventForm.virtual_link}
-                  onChange={(e) => setEventForm({ ...eventForm, virtual_link: e.target.value })}
+                  value={eventForm.meeting_link}
+                  onChange={(e) => setEventForm({ ...eventForm, meeting_link: e.target.value })}
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                   placeholder="https://meet.example.com/event"
                 />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={eventForm.is_virtual}
+                  onChange={(e) => setEventForm({ ...eventForm, is_virtual: e.target.checked })}
+                  className="w-4 h-4 rounded bg-slate-700 border-slate-600"
+                />
+                <label className="text-slate-300 text-sm">This is a virtual event</label>
               </div>
               <button
                 onClick={handleCreateEvent}
@@ -2883,7 +2939,7 @@ export default function OrganizationsDashboardPage() {
         </div>
       )}
 
-      {/* ============ COLLABORATION MODAL ============ */}
+      {/* ============ COLLABORATION MODAL - FIXED with search ============ */}
       {showCollaborationModal && selectedOrg && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowCollaborationModal(false)}>
           <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -2898,17 +2954,53 @@ export default function OrganizationsDashboardPage() {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="text-slate-400 text-sm block mb-2">Partner Organization *</label>
-                <select
-                  value={selectedPartner}
-                  onChange={(e) => setSelectedPartner(e.target.value)}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
-                >
-                  <option value="">Select an organization</option>
-                  {getPartnerOptions().map(org => (
-                    <option key={org.value} value={org.value}>{org.label}</option>
-                  ))}
-                </select>
+                <label className="text-slate-400 text-sm block mb-2">Search Partner Organization *</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by organization name or country..."
+                    value={collaborationSearchTerm}
+                    onChange={(e) => setCollaborationSearchTerm(e.target.value)}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+                <div className="mt-2 max-h-48 overflow-y-auto">
+                  {filteredPartnerOrgs.length > 0 ? (
+                    <div className="space-y-1">
+                      {filteredPartnerOrgs.slice(0, 10).map((org) => (
+                        <button
+                          key={org.id}
+                          onClick={() => {
+                            setSelectedPartner(org.id);
+                            setCollaborationSearchTerm(`${org.name} (${org.country || 'N/A'})`);
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+                            selectedPartner === org.id
+                              ? "bg-cyan-600/30 border border-cyan-500"
+                              : "hover:bg-slate-700"
+                          }`}
+                        >
+                          <p className="text-white text-sm">{org.name}</p>
+                          <p className="text-slate-400 text-xs">{org.type} • {org.country || 'N/A'}</p>
+                        </button>
+                      ))}
+                      {filteredPartnerOrgs.length > 10 && (
+                        <p className="text-slate-400 text-xs px-3 py-1">
+                          +{filteredPartnerOrgs.length - 10} more organizations
+                        </p>
+                      )}
+                    </div>
+                  ) : collaborationSearchTerm && (
+                    <p className="text-slate-400 text-sm px-3 py-2">No organizations found matching your search</p>
+                  )}
+                </div>
+                {selectedPartner && (
+                  <p className="text-emerald-400 text-sm mt-2 flex items-center gap-1">
+                    <CheckCircle className="w-4 h-4" />
+                    Selected: {organizations.find(o => o.id === selectedPartner)?.name}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="text-slate-400 text-sm block mb-2">Type of Collaboration *</label>
@@ -2937,8 +3029,8 @@ export default function OrganizationsDashboardPage() {
               </div>
               <button
                 onClick={handleSendCollaborationRequest}
-                disabled={submitting}
-                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                disabled={submitting || !selectedPartner}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submitting ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
@@ -2955,5 +3047,5 @@ export default function OrganizationsDashboardPage() {
       )}
       </div>
      </div>
-  )}
-  
+  );
+}
