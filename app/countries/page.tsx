@@ -29,6 +29,7 @@ import {
   Scale,
   Activity,
   Trophy,
+  XCircle,
 } from "lucide-react";
 
 // Interface matching mental_health_reforms table
@@ -54,6 +55,14 @@ interface Country {
   created_at: string;
 }
 
+interface ApiResponse {
+  success: boolean;
+  countries: Country[];
+  count?: number;
+  message?: string;
+  error?: string;
+}
+
 const regions = [
   "all", 
   "West Africa", 
@@ -65,27 +74,21 @@ const regions = [
 ];
 
 const getPriorityIcon = (priority: string) => {
-  switch (priority?.toLowerCase()) {
-    case "crisis":
-    case "🔥": return <Flame className="w-4 h-4 text-red-400" />;
-    case "high":
-    case "⚡": return <Zap className="w-4 h-4 text-yellow-400" />;
-    case "model":
-    case "🌱": return <Leaf className="w-4 h-4 text-emerald-400" />;
-    default: return <Zap className="w-4 h-4 text-yellow-400" />;
-  }
+  if (!priority) return <Zap className="w-4 h-4 text-yellow-400" />;
+  const lower = priority.toLowerCase();
+  if (lower.includes("crisis") || lower.includes("🔥")) return <Flame className="w-4 h-4 text-red-400" />;
+  if (lower.includes("high") || lower.includes("⚡")) return <Zap className="w-4 h-4 text-yellow-400" />;
+  if (lower.includes("model") || lower.includes("🌱")) return <Leaf className="w-4 h-4 text-emerald-400" />;
+  return <Zap className="w-4 h-4 text-yellow-400" />;
 };
 
 const getPriorityText = (priority: string) => {
-  switch (priority?.toLowerCase()) {
-    case "crisis":
-    case "🔥": return "Crisis Priority";
-    case "high":
-    case "⚡": return "High Impact Priority";
-    case "model":
-    case "🌱": return "Model System";
-    default: return "High Impact Priority";
-  }
+  if (!priority) return "Medium Priority";
+  const lower = priority.toLowerCase();
+  if (lower.includes("crisis") || lower.includes("🔥")) return "Crisis Priority";
+  if (lower.includes("high") || lower.includes("⚡")) return "High Impact Priority";
+  if (lower.includes("model") || lower.includes("🌱")) return "Model System";
+  return "Medium Priority";
 };
 
 const getScoreColor = (score: number) => {
@@ -106,13 +109,23 @@ const getScoreBgColor = (score: number) => {
   return "bg-red-500/20";
 };
 
+const getLawStatusBadge = (status: string) => {
+  if (!status) return { color: "bg-slate-500/20 text-slate-400", label: "Unknown" };
+  if (status.includes("✅")) return { color: "bg-emerald-500/20 text-emerald-400", label: "Modern" };
+  if (status.includes("⚠️")) return { color: "bg-yellow-500/20 text-yellow-400", label: "Outdated" };
+  if (status.includes("❌")) return { color: "bg-red-500/20 text-red-400", label: "None" };
+  return { color: "bg-slate-500/20 text-slate-400", label: "Unknown" };
+};
+
 export default function CountriesPage() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("all");
   const [sortBy, setSortBy] = useState<"name" | "score" | "implementation">("score");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [totalCount, setTotalCount] = useState<number>(0);
 
   useEffect(() => {
     fetchCountries();
@@ -120,33 +133,59 @@ export default function CountriesPage() {
 
   const fetchCountries = async () => {
     setLoading(true);
+    setError(null);
     try {
-      const response = await fetch("/api/countries");
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.countries) {
-          setCountries(data.countries);
-        } else {
-          setCountries([]);
-        }
+      console.log("🔄 Fetching countries...");
+      const response = await fetch("/api/countries", {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data: ApiResponse = await response.json();
+      console.log("📦 API Response:", data);
+      
+      if (data.success && data.countries) {
+        setCountries(data.countries);
+        setTotalCount(data.count || data.countries.length);
+        console.log(`✅ Loaded ${data.countries.length} countries (total: ${data.count || data.countries.length})`);
       } else {
+        setError(data.message || "Failed to load countries");
         setCountries([]);
+        setTotalCount(0);
       }
     } catch (error) {
-      console.error("Error fetching countries:", error);
+      console.error("❌ Error fetching countries:", error);
+      setError("Failed to load countries. Please try again.");
       setCountries([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
   };
 
   const filteredAndSortedCountries = useMemo(() => {
-    let filtered = countries.filter(country => {
-      const matchesSearch = country.country_name?.toLowerCase().includes(searchTerm.toLowerCase()) || false;
-      const matchesRegion = selectedRegion === "all" || true;
-      return matchesSearch && matchesRegion;
-    });
+    let filtered = [...countries];
+    
+    // Apply search filter
+    if (searchTerm.trim()) {
+      filtered = filtered.filter(country => 
+        country.country_name?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    // Apply region filter (if implemented)
+    if (selectedRegion !== "all") {
+      // You would need region data in your table
+      // For now, we'll just pass through
+    }
 
+    // Sort
     filtered.sort((a, b) => {
       if (sortBy === "name") return (a.country_name || "").localeCompare(b.country_name || "");
       if (sortBy === "score") return (b.reform_score || 0) - (a.reform_score || 0);
@@ -191,8 +230,15 @@ export default function CountriesPage() {
                 </div>
                 <div className="flex items-center gap-1">
                   <Globe className="w-4 h-4 text-cyan-400" />
-                  <span className="text-slate-400 text-xs">{countries.length} African Nations</span>
+                  <span className="text-slate-400 text-xs">
+                    {totalCount || countries.length} African Nations
+                  </span>
                 </div>
+                {error && (
+                  <div className="px-3 py-1 bg-red-500/20 rounded-full border border-red-500/30">
+                    <span className="text-red-300 text-xs">{error}</span>
+                  </div>
+                )}
               </div>
               <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
                 African Countries
@@ -302,71 +348,81 @@ export default function CountriesPage() {
         {filteredAndSortedCountries.length > 0 ? (
           viewMode === "grid" ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredAndSortedCountries.map((country) => (
-                <div
-                  key={country.id}
-                  className="bg-slate-800/50 rounded-2xl border border-slate-700 hover:border-cyan-500/50 transition-all group overflow-hidden"
-                >
-                  <div className="p-6">
-                    {/* Header */}
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h2 className="text-xl font-bold text-white group-hover:text-cyan-400 transition-colors">
-                          {country.country_name}
-                        </h2>
-                        <p className="text-slate-400 text-sm flex items-center gap-1 mt-1">
-                          <MapPin className="w-3 h-3" />
-                          {country.reform_tier || "Not classified"}
-                        </p>
+              {filteredAndSortedCountries.map((country) => {
+                const lawBadge = getLawStatusBadge(country.law_status);
+                return (
+                  <div
+                    key={country.id}
+                    className="bg-slate-800/50 rounded-2xl border border-slate-700 hover:border-cyan-500/50 transition-all group overflow-hidden"
+                  >
+                    <div className="p-6">
+                      {/* Header */}
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h2 className="text-xl font-bold text-white group-hover:text-cyan-400 transition-colors">
+                            {country.country_name}
+                          </h2>
+                          <p className="text-slate-400 text-sm flex items-center gap-1 mt-1">
+                            <MapPin className="w-3 h-3" />
+                            {country.reform_tier || "Not classified"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-700">
+                          {getPriorityIcon(country.priority_level)}
+                          <span className="text-xs text-slate-300">{getPriorityText(country.priority_level)}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-slate-700">
-                        {getPriorityIcon(country.priority_level)}
-                        <span className="text-xs text-slate-300">{getPriorityText(country.priority_level)}</span>
-                      </div>
-                    </div>
 
-                    {/* Score Display */}
-                    <div className="text-center py-4 border-y border-slate-700 my-4">
-                      <div className="inline-block">
-                        <div className={`w-24 h-24 rounded-full ${getScoreBgColor(country.reform_score || 0)} flex items-center justify-center mx-auto`}>
-                          <span className={`text-3xl font-bold ${getScoreColor(country.reform_score || 0)}`}>
-                            {country.reform_score || 0}
+                      {/* Score Display */}
+                      <div className="text-center py-4 border-y border-slate-700 my-4">
+                        <div className="inline-block">
+                          <div className={`w-24 h-24 rounded-full ${getScoreBgColor(country.reform_score || 0)} flex items-center justify-center mx-auto`}>
+                            <span className={`text-3xl font-bold ${getScoreColor(country.reform_score || 0)}`}>
+                              {country.reform_score || 0}
+                            </span>
+                          </div>
+                          <p className="text-slate-400 text-sm mt-2">Reform Score</p>
+                        </div>
+                      </div>
+
+                      {/* Details */}
+                      <div className="space-y-2 mb-4">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-400">Implementation</span>
+                          <span className={`font-medium ${getScoreColor(country.implementation_score || 0)}`}>{country.implementation_score || 0}%</span>
+                        </div>
+                        <div className="w-full bg-slate-700 rounded-full h-1.5">
+                          <div className={`h-1.5 rounded-full ${(country.implementation_score || 0) >= 70 ? "bg-emerald-500" : (country.implementation_score || 0) >= 50 ? "bg-yellow-500" : "bg-red-500"}`} style={{ width: `${country.implementation_score || 0}%` }}></div>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-400">Law Status</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${lawBadge.color}`}>{lawBadge.label}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-400">Funding Gap</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            country.funding_gap_level?.toLowerCase() === "critical" ? "bg-red-500/20 text-red-400" :
+                            country.funding_gap_level?.toLowerCase() === "high" ? "bg-orange-500/20 text-orange-400" :
+                            country.funding_gap_level?.toLowerCase() === "medium" ? "bg-yellow-500/20 text-yellow-400" :
+                            "bg-emerald-500/20 text-emerald-400"
+                          }`}>
+                            {country.funding_gap_level || "N/A"}
                           </span>
                         </div>
-                        <p className="text-slate-400 text-sm mt-2">Reform Score</p>
                       </div>
-                    </div>
 
-                    {/* Details */}
-                    <div className="space-y-2 mb-4">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-400">Implementation</span>
-                        <span className={`font-medium ${getScoreColor(country.implementation_score || 0)}`}>{country.implementation_score || 0}%</span>
-                      </div>
-                      <div className="w-full bg-slate-700 rounded-full h-1.5">
-                        <div className={`h-1.5 rounded-full ${(country.implementation_score || 0) >= 70 ? "bg-emerald-500" : (country.implementation_score || 0) >= 50 ? "bg-yellow-500" : "bg-red-500"}`} style={{ width: `${country.implementation_score || 0}%` }}></div>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-400">Law Status</span>
-                        <span className="text-white text-xs">{country.law_status || "N/A"}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-400">Funding Gap</span>
-                        <span className="text-white text-xs">{country.funding_gap_level || "N/A"}</span>
-                      </div>
+                      {/* Actions */}
+                      <Link
+                        href={`/countries/${encodeURIComponent(country.country_name)}`}
+                        className="w-full mt-4 py-2.5 bg-slate-700 hover:bg-cyan-600 rounded-xl text-white font-medium transition-colors flex items-center justify-center gap-2 group"
+                      >
+                        View Country Profile
+                        <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                      </Link>
                     </div>
-
-                    {/* Actions */}
-                    <Link
-                      href={`/countries/${encodeURIComponent(country.country_name)}`}
-                      className="w-full mt-4 py-2.5 bg-slate-700 hover:bg-cyan-600 rounded-xl text-white font-medium transition-colors flex items-center justify-center gap-2 group"
-                    >
-                      View Country Profile
-                      <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-                    </Link>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden">
@@ -384,50 +440,55 @@ export default function CountriesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAndSortedCountries.map((country) => (
-                      <tr key={country.id} className="border-t border-slate-700/50 hover:bg-slate-700/30 transition-colors">
-                        <td className="p-4">
-                          <div>
-                            <p className="text-white font-medium">{country.country_name}</p>
-                          </div>
-                        </td>
-                        <td className="p-4 text-slate-300 text-sm">{country.reform_tier || "N/A"}</td>
-                        <td className="p-4">
-                          <div className="flex items-center gap-2">
-                            <div className="w-16 bg-slate-700 rounded-full h-1.5">
-                              <div className={`h-1.5 rounded-full ${getScoreBgColor(country.reform_score || 0).replace('bg-', 'bg-').replace('/20', '')}`} style={{ width: `${country.reform_score || 0}%` }}></div>
+                    {filteredAndSortedCountries.map((country) => {
+                      const lawBadge = getLawStatusBadge(country.law_status);
+                      return (
+                        <tr key={country.id} className="border-t border-slate-700/50 hover:bg-slate-700/30 transition-colors">
+                          <td className="p-4">
+                            <div>
+                              <p className="text-white font-medium">{country.country_name}</p>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${lawBadge.color}`}>{lawBadge.label}</span>
                             </div>
-                            <span className={`text-sm font-medium ${getScoreColor(country.reform_score || 0)}`}>{country.reform_score || 0}%</span>
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          <span className={`text-sm font-medium ${getScoreColor(country.implementation_score || 0)}`}>{country.implementation_score || 0}%</span>
-                        </td>
-                        <td className="p-4">
-                          <div className="flex items-center gap-1">
-                            {getPriorityIcon(country.priority_level)}
-                            <span className="text-slate-300 text-sm">{getPriorityText(country.priority_level)}</span>
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          <span className={`text-xs px-2 py-1 rounded-full ${
-                            country.funding_gap_level?.toLowerCase() === "high" ? "bg-red-500/20 text-red-400" :
-                            country.funding_gap_level?.toLowerCase() === "medium" ? "bg-yellow-500/20 text-yellow-400" :
-                            "bg-emerald-500/20 text-emerald-400"
-                          }`}>
-                            {country.funding_gap_level || "N/A"}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <Link
-                            href={`/countries/${encodeURIComponent(country.country_name)}`}
-                            className="p-2 hover:bg-slate-600 rounded-lg transition-colors inline-flex items-center"
-                          >
-                            <Eye className="w-4 h-4 text-slate-400" />
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="p-4 text-slate-300 text-sm">{country.reform_tier || "N/A"}</td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-16 bg-slate-700 rounded-full h-1.5">
+                                <div className={`h-1.5 rounded-full ${(country.reform_score || 0) >= 70 ? "bg-emerald-500" : (country.reform_score || 0) >= 50 ? "bg-yellow-500" : "bg-red-500"}`} style={{ width: `${country.reform_score || 0}%` }}></div>
+                              </div>
+                              <span className={`text-sm font-medium ${getScoreColor(country.reform_score || 0)}`}>{country.reform_score || 0}%</span>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <span className={`text-sm font-medium ${getScoreColor(country.implementation_score || 0)}`}>{country.implementation_score || 0}%</span>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-1">
+                              {getPriorityIcon(country.priority_level)}
+                              <span className="text-slate-300 text-sm">{getPriorityText(country.priority_level)}</span>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <span className={`text-xs px-2 py-1 rounded-full ${
+                              country.funding_gap_level?.toLowerCase() === "critical" ? "bg-red-500/20 text-red-400" :
+                              country.funding_gap_level?.toLowerCase() === "high" ? "bg-orange-500/20 text-orange-400" :
+                              country.funding_gap_level?.toLowerCase() === "medium" ? "bg-yellow-500/20 text-yellow-400" :
+                              "bg-emerald-500/20 text-emerald-400"
+                            }`}>
+                              {country.funding_gap_level || "N/A"}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <Link
+                              href={`/countries/${encodeURIComponent(country.country_name)}`}
+                              className="p-2 hover:bg-slate-600 rounded-lg transition-colors inline-flex items-center"
+                            >
+                              <Eye className="w-4 h-4 text-slate-400" />
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -438,6 +499,14 @@ export default function CountriesPage() {
             <Globe className="w-16 h-16 text-slate-600 mx-auto mb-4" />
             <p className="text-slate-400 text-lg">No countries found</p>
             <p className="text-slate-500 text-sm mt-2">Try adjusting your search or filters</p>
+            {error && (
+              <button
+                onClick={fetchCountries}
+                className="mt-4 px-6 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors"
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
 
@@ -452,6 +521,9 @@ export default function CountriesPage() {
                   {stats.crisisCountries} countries are in crisis tier requiring immediate intervention.
                   {stats.highPerformers} countries demonstrate strong reform progress.
                   The continental average reform score is {stats.avgScore}% with {stats.avgImplementation}% implementation.
+                </p>
+                <p className="text-slate-400 text-sm mt-2">
+                  Total countries in database: {totalCount || countries.length}
                 </p>
               </div>
             </div>

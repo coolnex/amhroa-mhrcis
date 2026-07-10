@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 
 import Image from "next/image";
@@ -43,16 +44,71 @@ const stats = {
   reports: 128,
 };
 
+// Updated featuredReports with the Google Drive link
 const featuredReports = [
-  { id: 1, title: "State of Mental Health Reform in Africa 2024", date: "March 2024", downloads: 1245, category: "Flagship Report" },
-  { id: 2, title: "SDG 3.4 Implementation Progress Report", date: "February 2024", downloads: 892, category: "Policy Brief" },
-  { id: 3, title: "Workforce Capacity Assessment", date: "January 2024", downloads: 567, category: "Research Paper" },
+  {
+    id: 1,
+    title: "State of Mental Health Reform in Africa 2024",
+    date: "March 2024",
+    downloads: 105,
+    category: "Flagship Report",
+    link: "https://drive.google.com/file/d/1E6wbNtpK2tuD4dOGjQJgmaZPiyEg7TBA/view?usp=sharing"
+  },
+  {
+    id: 2,
+    title: "SDG 3.4 Implementation Progress Report",
+    date: "February 2024",
+    downloads: 122,
+    category: "Policy Brief",
+    link: "#"
+  },
+  {
+    id: 3,
+    title: "Workforce Capacity Assessment",
+    date: "January 2024",
+    downloads: 522,
+    category: "Research Paper",
+    link: "#"
+  },
 ];
 
+// Past Events
+const pastEvents = [
+  {
+    id: 1,
+    title: "AMHROA International Conference 2.0",
+    date: "2025",
+    location: "Ghana",
+    type: "Past Conference"
+  },
+  {
+    id: 2,
+    title: "AMHROA International Conference 3.0",
+    date: "2026",
+    location: "Ndola, Zambia",
+    type: "Past Conference"
+  }
+];
+
+// Updated upcoming events
 const upcomingEvents = [
-  { id: 1, title: "African Mental Health Leadership Summit", date: "June 15-17, 2024", location: "Nairobi, Kenya", type: "Summit" },
-  { id: 2, title: "Policy Makers Workshop: Implementation Strategies", date: "July 22-24, 2024", location: "Accra, Ghana", type: "Workshop" },
-  { id: 3, title: "CSO Coalition Meeting", date: "August 5, 2024", location: "Virtual", type: "Webinar" },
+  {
+    id: 1,
+    title: "Accelerate Capacity Building Program",
+    date: "Friday, July 10th, 2026",
+    location: "Virtual (Zoom)",
+    type: "Webinar",
+    theme: "One Africa, One Mind",
+    link: "https://us06web.zoom.us/meeting/register/mRwMQ_lFSbG4afYbfaBn3g"
+  },
+  {
+    id: 2,
+    title: "AMHROA October Summit",
+    date: "October 2026",
+    location: "Virtual & In-Person",
+    type: "Summit",
+    theme: "World Mental Health Day Commemoration"
+  }
 ];
 
 const successStories = [
@@ -329,10 +385,15 @@ export default function PublicPortal() {
                   <p className="text-slate-500 text-sm mb-4">{report.date}</p>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400 text-sm">{report.downloads} downloads</span>
-                    <button className="text-cyan-600 hover:text-cyan-700 flex items-center gap-1">
+                    <a
+                      href={report.link || "#"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-cyan-600 hover:text-cyan-700 flex items-center gap-1"
+                    >
                       <Download className="w-4 h-4" />
                       Download
-                    </button>
+                    </a>
                   </div>
                 </div>
               ))}
@@ -369,39 +430,76 @@ export default function PublicPortal() {
           </div>
         </section>
 
-        {/* Events Section */}
+        {/* Events Section - Updated with Past and Upcoming */}
         <section id="events" className="py-20 bg-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center mb-12">
-              <div>
-                <h2 className="text-4xl font-bold text-slate-900 mb-4">Upcoming Events</h2>
-                <p className="text-xl text-slate-600">Join us in advancing mental health reform</p>
-              </div>
-              <Link href="/events" className="text-cyan-600 hover:text-cyan-700 flex items-center gap-1">
-                View Calendar
-                <ArrowRight className="w-4 h-4" />
-              </Link>
+            <div className="mb-12">
+              <h2 className="text-4xl font-bold text-slate-900 mb-4">Events</h2>
+              <p className="text-xl text-slate-600">Join us in advancing mental health reform</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {upcomingEvents.map((event) => (
-                <div key={event.id} className="flex gap-4 p-4 border border-slate-200 rounded-xl hover:shadow-md transition-shadow">
-                  <div className="bg-cyan-100 p-3 rounded-xl h-fit">
-                    <Calendar className="w-6 h-6 text-cyan-600" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="px-2 py-0.5 bg-cyan-100 text-cyan-700 text-xs rounded-full">{event.type}</span>
+            {/* Past Events */}
+            <div className="mb-12">
+              <h3 className="text-2xl font-bold text-slate-900 mb-4">Past Events</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {pastEvents.map((event) => (
+                  <div key={event.id} className="flex gap-4 p-4 border border-slate-200 rounded-xl bg-slate-50">
+                    <div className="bg-gray-300 p-3 rounded-xl h-fit">
+                      <Calendar className="w-6 h-6 text-slate-600" />
                     </div>
-                    <h3 className="font-bold text-slate-900 mb-1">{event.title}</h3>
-                    <p className="text-slate-500 text-sm">{event.date}</p>
-                    <p className="text-slate-400 text-sm flex items-center gap-1 mt-1">
-                      <MapPinIcon className="w-3 h-3" />
-                      {event.location}
-                    </p>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="px-2 py-0.5 bg-gray-300 text-slate-700 text-xs rounded-full">{event.type}</span>
+                      </div>
+                      <h3 className="font-bold text-slate-900 mb-1">{event.title}</h3>
+                      <p className="text-slate-500 text-sm">{event.date}</p>
+                      <p className="text-slate-400 text-sm flex items-center gap-1 mt-1">
+                        <MapPinIcon className="w-3 h-3" />
+                        {event.location}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
+
+            {/* Upcoming Events */}
+            <div>
+              <h3 className="text-2xl font-bold text-slate-900 mb-4">Upcoming Events</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {upcomingEvents.map((event) => (
+                  <div key={event.id} className="flex gap-4 p-4 border border-cyan-200 rounded-xl bg-cyan-50/30 hover:shadow-md transition-shadow">
+                    <div className="bg-cyan-100 p-3 rounded-xl h-fit">
+                      <Calendar className="w-6 h-6 text-cyan-600" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="px-2 py-0.5 bg-cyan-100 text-cyan-700 text-xs rounded-full">{event.type}</span>
+                      </div>
+                      <h3 className="font-bold text-slate-900 mb-1">{event.title}</h3>
+                      {event.theme && (
+                        <p className="text-cyan-700 text-sm font-medium">Theme: {event.theme}</p>
+                      )}
+                      <p className="text-slate-500 text-sm">{event.date}</p>
+                      <p className="text-slate-400 text-sm flex items-center gap-1 mt-1">
+                        <MapPinIcon className="w-3 h-3" />
+                        {event.location}
+                      </p>
+                      {event.link && (
+                        <a
+                          href={event.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block mt-2 text-cyan-600 hover:text-cyan-700 text-sm font-medium flex items-center gap-1"
+                        >
+                          Register Now
+                          <ArrowRight className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </section>
@@ -584,7 +682,6 @@ export default function PublicPortal() {
                   <li><Link href="/countries" className="hover:text-cyan-400">Country Profiles</Link></li>
                   <li><Link href="/repository" className="hover:text-cyan-400">Knowledge Repository</Link></li>
                   <li><Link href="/careers" className="hover:text-cyan-400">Careers</Link></li>
-                  {/* WhatsApp Group Links */}
                   <li>
                     <a 
                       href="https://chat.whatsapp.com/IZRq6U8M9Z5EJRRa1S4hgT" 

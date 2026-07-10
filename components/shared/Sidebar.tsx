@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard,
   Globe,
@@ -38,6 +38,7 @@ import {
   Handshake,
   Briefcase,
   Eye,
+  Video,
   AlertTriangle,
   LogOut,
   Heart,
@@ -45,6 +46,18 @@ import {
   DollarSign,
   Award,
   BriefcaseBusiness,
+  Bell,
+  BellRing,
+  Calendar,
+  Clock,
+  X,
+  AlertCircle,
+  CheckCircle,
+  Info,
+  Zap,
+  Calendar as CalendarIcon,
+  MapPin,
+  ExternalLink,
 } from "lucide-react";
 
 // User role types - including combined coordinator roles
@@ -64,6 +77,48 @@ type UserRole =
   | "cso_coordinator"
   | "donor_coordinator"
   | "admin_coordinator";
+
+// Notification Types
+interface Alert {
+  id: string;
+  alert_type: string;
+  title: string;
+  message: string;
+  country: string;
+  severity: string;
+  status: string;
+  audience: string;
+  created_at: string;
+  expires_at: string;
+}
+
+interface Event {
+  id: string;
+  title: string;
+  description: string;
+  event_type: string;
+  start_date: string;
+  end_date: string;
+  location: string;
+  venue: string;
+  country: string;
+  status: string;
+  meeting_link: string;
+  is_virtual: boolean;
+}
+
+interface NotificationItem {
+  id: string;
+  type: 'alert' | 'event' | 'reminder';
+  title: string;
+  message: string;
+  date: string;
+  severity?: 'low' | 'medium' | 'high' | 'urgent';
+  link?: string;
+  isRead: boolean;
+  icon: React.ReactNode;
+  color: string;
+}
 
 // Role display names
 const roleDisplayNames: Record<UserRole, string> = {
@@ -103,21 +158,6 @@ const roleBadges: Record<UserRole, { color: string; bg: string }> = {
   admin_coordinator: { color: "text-purple-400", bg: "bg-gradient-to-r from-purple-500/20 to-orange-500/20" },
 };
 
-// Helper function to get base role (removes _coordinator suffix)
-const getBaseRole = (role: string): UserRole => {
-  if (role.endsWith("_coordinator")) {
-    const baseRole = role.replace("_coordinator", "") as UserRole;
-    if (baseRole === "mental_health" as UserRole) return "Mental_Health_Professional";
-    return baseRole;
-  }
-  return role as UserRole;
-};
-
-// Check if role has coordinator access
-const hasCoordinatorAccess = (role: string): boolean => {
-  return role.endsWith("_coordinator") || role === "coordinator" || role === "Admin";
-};
-
 // Navigation groups with role-based access
 const navigationGroups = {
   admin:{
@@ -147,7 +187,7 @@ const navigationGroups = {
       { name: "Executive Dashboard", href: "/executive-dashboard", icon: Crown },
       { name: "Continental Reforms", href: "/continental-reform-dashboard", icon: Globe},
       { name: "Countries", href: "/countries", icon: Globe },
-      { name: "Intelligent Hub", href: "/dashboard", icon: LayoutDashboard },
+      { name: "Intelligent Dashboard", href: "/dashboard", icon: LayoutDashboard },
     ],
   },
   repository: {
@@ -237,24 +277,100 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   ]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // Notification States
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     checkUserSession();
   }, [pathname]);
+
+  // Click outside to close notifications
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Fetch notifications when authenticated
+  useEffect(() => {
+    if (isAuthenticated && userData) {
+      fetchNotifications();
+      // Set up polling every 5 minutes
+      const interval = setInterval(fetchNotifications, 300000);
+      return () => clearInterval(interval);
+    }
+  }, [isAuthenticated, userData]);
+
+  // In Sidebar.tsx - Update the fetchNotifications function
+
+  const fetchNotifications = async () => {
+    if (!userData) return;
+    
+    setNotificationsLoading(true);
+    try {
+      const items: NotificationItem[] = [];
+      
+      // Fetch upcoming events
+      const { data: events, error: eventsError } = await supabase
+        .from("events")
+        .select("*")
+        .eq("status", "Upcoming")
+        .eq("approval_status", "Approved") // Only show approved events
+        .gte("start_date", new Date().toISOString())
+        .order("start_date", { ascending: true })
+        .limit(5);
+
+      if (!eventsError && events) {
+        events.forEach((event: Event) => {
+          const eventDate = new Date(event.start_date);
+          const today = new Date();
+          const daysUntil = Math.ceil((eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          
+          let severity: 'low' | 'medium' | 'high' | 'urgent' = 'low';
+          if (daysUntil <= 3) severity = 'urgent';
+          else if (daysUntil <= 7) severity = 'high';
+          else if (daysUntil <= 14) severity = 'medium';
+
+          items.push({
+            id: `event-${event.id}`,
+            type: 'event',
+            title: event.title,
+            message: `${event.event_type} • ${daysUntil <= 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil} days`} • ${event.location || event.venue || 'Virtual'}`,
+            date: new Date(event.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            severity,
+            link: `/events?id=${event.id}`, // Changed to use query parameter
+            isRead: false,
+            icon: event.is_virtual ? <Video className="w-4 h-4" /> : <MapPin className="w-4 h-4" />,
+            color: event.is_virtual ? 'bg-purple-500/20 text-purple-400' : 'bg-cyan-500/20 text-cyan-400',
+          });
+        });
+      }
+
+      // ... rest of the function remains the same
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
 
   const checkUserSession = async () => {
     setLoading(true);
     try {
       const userStr = localStorage.getItem("user");
       
-      console.log("🔍 Sidebar - Checking user session...");
-      console.log("🔍 Sidebar - User string exists:", !!userStr);
-
       if (userStr) {
         try {
           const userData = JSON.parse(userStr);
-          console.log("🔍 Sidebar - User data from localStorage:", userData);
-          
           if (userData && userData.role) {
             setIsAuthenticated(true);
             setUserRole(userData.role as UserRole);
@@ -262,7 +378,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             setUserEmail(userData.email || "");
             setUserData(userData);
             setLoading(false);
-            console.log("✅ Sidebar - User authenticated via localStorage");
             return;
           }
         } catch (parseError) {
@@ -271,7 +386,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         }
       }
 
-      console.log("🔍 Sidebar - Checking Supabase session...");
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError) {
@@ -279,7 +393,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       }
 
       if (!session) {
-        console.log("❌ Sidebar - No session found");
         setIsAuthenticated(false);
         setUserRole("public");
         
@@ -298,20 +411,17 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           pathname.startsWith("/public");
         
         if (!isPublicRoute && pathname !== "/") {
-          console.log("No auth, redirecting to login");
           router.push("/login");
         }
         setLoading(false);
         return;
       }
       
-      console.log("✅ Sidebar - User authenticated via Supabase:", session.user.id);
       setIsAuthenticated(true);
       
       let role = session.user.user_metadata?.role || "public";
       
       if (role === "public") {
-        console.log("🔍 Sidebar - Looking up role in users table...");
         const { data: userData, error: userError } = await supabase
           .from("users")
           .select("role, full_name, email")
@@ -321,7 +431,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         if (userError) {
           console.error("Error fetching user data:", userError);
         } else if (userData) {
-          console.log("🔍 Sidebar - User data from DB:", userData);
           role = userData.role || "public";
           setUserData(userData);
           setUserName(userData.full_name || session.user.email?.split("@")[0] || "User");
@@ -333,7 +442,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         role = "public";
       }
       
-      console.log("🔍 Sidebar - Final role:", role);
       setUserRole(role as UserRole);
       
       if (!userName) {
@@ -352,8 +460,6 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
 
   const handleLogout = async () => {
     try {
-      console.log("🚪 Logging out...");
-      
       localStorage.removeItem("user");
       localStorage.removeItem("session");
       localStorage.removeItem("token");
@@ -372,6 +478,38 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       router.push("/login");
     } catch (error) {
       console.error("Logout error:", error);
+    }
+  };
+
+  const markAsRead = (id: string) => {
+    setNotifications(prev => 
+      prev.map(n => n.id === id ? { ...n, isRead: true } : n)
+    );
+    setUnreadCount(prev => Math.max(0, prev - 1));
+  };
+
+  const markAllAsRead = () => {
+    setNotifications(prev => 
+      prev.map(n => ({ ...n, isRead: true }))
+    );
+    setUnreadCount(0);
+  };
+
+  const getSeverityColor = (severity?: string) => {
+    switch (severity) {
+      case 'urgent': return 'bg-red-500/20 border-red-500/30';
+      case 'high': return 'bg-orange-500/20 border-orange-500/30';
+      case 'medium': return 'bg-yellow-500/20 border-yellow-500/30';
+      default: return 'bg-blue-500/20 border-blue-500/30';
+    }
+  };
+
+  const getSeverityDot = (severity?: string) => {
+    switch (severity) {
+      case 'urgent': return 'bg-red-500';
+      case 'high': return 'bg-orange-500';
+      case 'medium': return 'bg-yellow-500';
+      default: return 'bg-blue-500';
     }
   };
 
@@ -448,7 +586,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         )}
       </button>
 
-      {/* Logo Section - Fixed */}
+      {/* Logo Section */}
       <div className={`p-6 border-b border-slate-700/50 flex-shrink-0 ${collapsed ? "text-center" : ""}`}>
         {!collapsed ? (
           <div className="flex items-center gap-3">
@@ -476,7 +614,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         )}
       </div>
 
-      {/* User Role Indicator - Fixed */}
+      {/* User Role Indicator with Notification Bell */}
       {!collapsed && (
         <div className="mx-4 mt-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700 flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -489,7 +627,127 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
               <p className="text-white text-sm font-semibold truncate">{userName || roleDisplay}</p>
               <p className={`text-xs ${roleBadge.color} truncate`}>{roleDisplay}</p>
             </div>
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0"></div>
+            {/* Notification Bell */}
+            <div className="relative" ref={notificationRef}>
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="relative p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                {unreadCount > 0 ? (
+                  <>
+                    <BellRing className="w-5 h-5 text-yellow-400" />
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-xs flex items-center justify-center font-bold animate-pulse">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  </>
+                ) : (
+                  <Bell className="w-5 h-5 text-slate-400" />
+                )}
+              </button>
+
+              {/* Notification Dropdown */}
+              {showNotifications && (
+                <div className="absolute right-0 top-full mt-2 w-96 max-h-[500px] overflow-hidden bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl z-50">
+                  <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+                    <div>
+                      <h3 className="text-white font-semibold">Notifications</h3>
+                      <p className="text-slate-400 text-xs">{unreadCount} unread</p>
+                    </div>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={markAllAsRead}
+                        className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+                      >
+                        Mark all as read
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="overflow-y-auto max-h-[400px] custom-scrollbar">
+                    {notificationsLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+                      </div>
+                    ) : notifications.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Bell className="w-12 h-12 text-slate-600 mx-auto mb-2" />
+                        <p className="text-slate-400">No notifications</p>
+                        <p className="text-slate-500 text-sm">You're all caught up!</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-700">
+                        {notifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            onClick={() => {
+                              markAsRead(notification.id);
+                              if (notification.link) {
+                                router.push(notification.link);
+                                setShowNotifications(false);
+                              }
+                            }}
+                            className={`p-4 hover:bg-slate-700/50 transition-colors cursor-pointer ${
+                              !notification.isRead ? 'bg-slate-700/30' : ''
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className={`p-2 rounded-lg flex-shrink-0 ${notification.color}`}>
+                                {notification.icon}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-white text-sm font-medium truncate">
+                                    {notification.title}
+                                  </p>
+                                  {notification.severity && (
+                                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getSeverityDot(notification.severity)}`}></span>
+                                  )}
+                                </div>
+                                <p className="text-slate-400 text-xs mt-1 line-clamp-2">
+                                  {notification.message}
+                                </p>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <Clock className="w-3 h-3 text-slate-500" />
+                                  <span className="text-slate-500 text-xs">{notification.date}</span>
+                                  {notification.type === 'event' && (
+                                    <span className="text-xs px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded-full">
+                                      Event
+                                    </span>
+                                  )}
+                                  {notification.type === 'alert' && notification.severity && (
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                      notification.severity === 'urgent' ? 'bg-red-500/20 text-red-400' :
+                                      notification.severity === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                                      notification.severity === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                                      'bg-blue-500/20 text-blue-400'
+                                    }`}>
+                                      {notification.severity}
+                                    </span>
+                                  )}
+                                  {!notification.isRead && (
+                                    <span className="w-2 h-2 bg-cyan-400 rounded-full flex-shrink-0 ml-auto"></span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-3 border-t border-slate-700">
+                    <Link
+                      href="/notifications"
+                      className="block text-center text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                      onClick={() => setShowNotifications(false)}
+                    >
+                      View all notifications
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -568,7 +826,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         </div>
       </nav>
 
-      {/* Logout Button - Fixed */}
+      {/* Logout Button */}
       <div className="p-4 border-t border-slate-700/50 flex-shrink-0">
         <button
           onClick={handleLogout}
@@ -581,7 +839,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
         </button>
       </div>
 
-      {/* Footer Stats - Fixed */}
+      {/* Footer Stats */}
       {!collapsed && (
         <div className="p-4 border-t border-slate-700/50 space-y-2 flex-shrink-0">
           <div className="flex justify-between text-xs">
@@ -616,3 +874,4 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
     </aside>
   );
 }
+

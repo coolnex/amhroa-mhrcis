@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import {
   Calendar,
@@ -33,7 +34,6 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 interface Event {
   id: string;
@@ -72,6 +72,9 @@ const eventTypes = [
 
 export default function EventsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const eventIdParam = searchParams.get('id');
+  
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
@@ -107,15 +110,25 @@ export default function EventsPage() {
     fetchEvents();
   }, []);
 
+  // Auto-open event from URL parameter
+  useEffect(() => {
+    if (eventIdParam && events.length > 0 && !selectedEvent) {
+      const event = events.find(e => e.id === eventIdParam);
+      if (event) {
+        setSelectedEvent(event);
+        // Remove the parameter from URL without page refresh
+        router.replace('/events', { scroll: false });
+      }
+    }
+  }, [eventIdParam, events, selectedEvent]);
+
   const checkUser = async () => {
-    // Check localStorage first
     const userStr = localStorage.getItem("user");
     if (userStr) {
       const userData = JSON.parse(userStr);
       setUser(userData);
       setUserRole(userData.role || "");
       
-      // Fetch user's registered events
       const { data: registrations } = await supabase
         .from("event_registrations")
         .select("event_id")
@@ -125,7 +138,6 @@ export default function EventsPage() {
       return;
     }
 
-    // Check Supabase session
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !session) return;
 
@@ -152,13 +164,11 @@ export default function EventsPage() {
   const fetchEvents = async () => {
     setLoading(true);
     try {
-      // First fetch events
       let query = supabase
         .from("events")
         .select("*")
         .order("start_date", { ascending: true });
 
-      // If not admin, only show approved events
       if (userRole !== "Admin") {
         query = query.eq("approval_status", "Approved");
       }
@@ -173,7 +183,6 @@ export default function EventsPage() {
         return;
       }
 
-      // Get creator names separately
       const creatorIds = data.map(e => e.created_by).filter(id => id);
       let creatorsMap: Record<string, { full_name: string; email: string }> = {};
       
@@ -191,7 +200,6 @@ export default function EventsPage() {
         }
       }
 
-      // Get approver names
       const approverIds = data.map(e => e.approved_by).filter(id => id);
       let approversMap: Record<string, string> = {};
       
@@ -209,7 +217,6 @@ export default function EventsPage() {
         }
       }
 
-      // Combine data
       const eventsWithDetails = data.map(event => ({
         ...event,
         created_by_name: creatorsMap[event.created_by]?.full_name || "Unknown",
@@ -291,7 +298,6 @@ export default function EventsPage() {
   
     setActionLoading(eventId);
     try {
-      // Check if already registered
       const { data: existingRegistration, error: checkError } = await supabase
         .from("event_registrations")
         .select("id")
@@ -309,7 +315,6 @@ export default function EventsPage() {
         return;
       }
   
-      // Insert registration
       const { error } = await supabase.from("event_registrations").insert({
         event_id: eventId,
         user_id: user.id,
@@ -319,7 +324,6 @@ export default function EventsPage() {
   
       if (error) throw error;
   
-      // Update registered count using the function
       const { error: updateError } = await supabase.rpc('increment_event_registrations', { 
         event_id: eventId 
       });
@@ -327,8 +331,6 @@ export default function EventsPage() {
       if (updateError) {
         console.error("Error updating count:", updateError);
         
-        // If the RPC fails, try direct update with a manual increment
-        // First get the current count
         const { data: eventData, error: fetchError } = await supabase
           .from("events")
           .select("registered_count")
@@ -338,7 +340,6 @@ export default function EventsPage() {
         if (fetchError) {
           console.error("Error fetching event:", fetchError);
         } else if (eventData) {
-          // Update with new count
           const newCount = (eventData.registered_count || 0) + 1;
           const { error: directUpdateError } = await supabase
             .from("events")
@@ -351,10 +352,7 @@ export default function EventsPage() {
         }
       }
       
-      // Refresh events to update the count
       await fetchEvents();
-      
-      // Update registered events set
       setRegisteredEvents(prev => new Set([...prev, eventId]));
       
       alert("Successfully registered for event!");
@@ -365,6 +363,7 @@ export default function EventsPage() {
       setActionLoading(null);
     }
   };
+
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -474,7 +473,7 @@ export default function EventsPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
-      {/* Header - Keep the same */}
+      {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-8 md:py-10">
           <div className="flex justify-between items-start flex-wrap gap-4">
@@ -506,7 +505,7 @@ export default function EventsPage() {
             <div className="flex gap-2">
               {user && (
                 <button
-                  onClick={() => router.push("/events/new")}
+                  onClick={() => setShowCreateModal(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors"
                 >
                   <Plus className="w-4 h-4" />
@@ -525,7 +524,7 @@ export default function EventsPage() {
         </div>
       </div>
 
-      {/* Stats - Keep the same */}
+      {/* Stats */}
       <div className="px-4 md:px-8 py-6">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
@@ -567,7 +566,7 @@ export default function EventsPage() {
           )}
         </div>
 
-        {/* Filters - Keep the same */}
+        {/* Filters */}
         <div className="flex flex-wrap gap-4 mb-6">
           <div className="flex-1 min-w-[200px]">
             <div className="relative">
@@ -805,7 +804,200 @@ export default function EventsPage() {
               <p className="text-slate-400 text-sm mt-1">Events require admin approval before being displayed</p>
             </div>
             <form onSubmit={handleCreateEvent} className="p-6 space-y-5">
-              {/* ... (rest of the form remains the same) ... */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Title *</label>
+                  <input
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                    placeholder="Event title"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Event Type *</label>
+                  <select
+                    value={formData.event_type}
+                    onChange={(e) => setFormData({ ...formData, event_type: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                    required
+                  >
+                    <option value="">Select type</option>
+                    {eventTypes.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Description *</label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  rows={4}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                  placeholder="Event description"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Start Date *</label>
+                  <input
+                    type="datetime-local"
+                    value={formData.start_date}
+                    onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">End Date</label>
+                  <input
+                    type="datetime-local"
+                    value={formData.end_date}
+                    onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Venue</label>
+                  <input
+                    type="text"
+                    value={formData.venue}
+                    onChange={(e) => setFormData({ ...formData, venue: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                    placeholder="Venue name"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Location</label>
+                  <input
+                    type="text"
+                    value={formData.location}
+                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                    placeholder="City, Country"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Country</label>
+                  <input
+                    type="text"
+                    value={formData.country}
+                    onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                    placeholder="Country"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Capacity</label>
+                  <input
+                    type="number"
+                    value={formData.capacity}
+                    onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                    placeholder="Max attendees"
+                    min="1"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-slate-300 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={formData.is_virtual}
+                    onChange={(e) => setFormData({ ...formData, is_virtual: e.target.checked })}
+                  />
+                  Virtual Event
+                </label>
+                <label className="flex items-center gap-2 text-slate-300 text-sm">
+                  <input
+                    type="checkbox"
+                    onChange={() => setFormData(prev => ({
+                      ...prev,
+                      speakers: prev.speakers.length === 0 ? [{ name: "", title: "", organization: "" }] : prev.speakers
+                    }))}
+                  />
+                  Add Speakers
+                </label>
+              </div>
+
+              {formData.is_virtual && (
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Meeting Link</label>
+                  <input
+                    type="url"
+                    value={formData.meeting_link}
+                    onChange={(e) => setFormData({ ...formData, meeting_link: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                    placeholder="https://meet.example.com/event"
+                  />
+                </div>
+              )}
+
+              {/* Speakers */}
+              {formData.speakers.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-slate-400 text-sm font-medium">Speakers</label>
+                    <button
+                      type="button"
+                      onClick={addSpeaker}
+                      className="text-cyan-400 hover:text-cyan-300 text-sm flex items-center gap-1"
+                    >
+                      <Plus className="w-4 h-4" /> Add Speaker
+                    </button>
+                  </div>
+                  {formData.speakers.map((speaker, index) => (
+                    <div key={index} className="bg-slate-700/30 rounded-lg p-4 space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400 text-sm">Speaker {index + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeSpeaker(index)}
+                          className="text-red-400 hover:text-red-300 text-sm"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Full Name"
+                        value={speaker.name}
+                        onChange={(e) => updateSpeaker(index, "name", e.target.value)}
+                        className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Title / Position"
+                        value={speaker.title}
+                        onChange={(e) => updateSpeaker(index, "title", e.target.value)}
+                        className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Organization"
+                        value={speaker.organization}
+                        onChange={(e) => updateSpeaker(index, "organization", e.target.value)}
+                        className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4">
                 <div className="flex items-start gap-3">
                   <Clock className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
@@ -862,6 +1054,11 @@ export default function EventsPage() {
                     {selectedEvent.approval_status === "Rejected" && (
                       <span className="px-2 py-1 rounded-full text-xs bg-red-500/20 text-red-400">
                         Rejected
+                      </span>
+                    )}
+                    {selectedEvent.is_virtual && (
+                      <span className="px-2 py-1 rounded-full text-xs bg-purple-500/20 text-purple-400">
+                        Virtual
                       </span>
                     )}
                   </div>
@@ -954,18 +1151,9 @@ export default function EventsPage() {
                 </div>
               )}
 
-              {/* Registered Attendees (Admin only) */}
-              {isAdmin && (
-                <div className="bg-slate-700/30 rounded-lg p-4">
-                  <h3 className="text-white font-semibold mb-2">Registered Attendees</h3>
-                  {/* Replace with your implementation or remove if not needed */}
-                  <div className="text-slate-400 text-sm">Registered attendees will be displayed here.</div>
-                </div>
-              )}
-
               {/* Action Buttons */}
               {selectedEvent.approval_status === "Approved" && selectedEvent.status === "Upcoming" && (
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   {!registeredEvents.has(selectedEvent.id) && (
                     <button
                       onClick={() => {
@@ -1002,6 +1190,28 @@ export default function EventsPage() {
                   )}
                 </div>
               )}
+
+              {/* Share Event Link */}
+              <div className="border-t border-slate-700 pt-4">
+                <p className="text-slate-400 text-sm mb-2">Share this event:</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={`${window.location.origin}/events?id=${selectedEvent.id}`}
+                    readOnly
+                    className="flex-1 bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-white text-sm focus:outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/events?id=${selectedEvent.id}`);
+                      alert("Event link copied to clipboard!");
+                    }}
+                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-white text-sm transition-colors"
+                  >
+                    Copy Link
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

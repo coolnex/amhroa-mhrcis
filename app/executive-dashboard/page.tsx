@@ -8,13 +8,10 @@ import {
   Activity,
   FileText,
   BrainCircuit,
-  Landmark,
   BadgeDollarSign,
   Award,
   Target,
   AlertTriangle,
-  CheckCircle,
-  Clock,
   Users,
   Building2,
   Calendar,
@@ -25,109 +22,97 @@ import {
   Flame,
   Zap,
   Leaf,
-  BarChart3,
-  PieChart,
-  LineChart,
   ArrowUpRight,
   ArrowDownRight,
 } from "lucide-react";
 import Link from "next/link";
 
-interface ExecutiveDashboardData {
-  metrics: {
-    totalCountries: number;
-    avgReformScore: number;
-    avgSDG3: number;
-    highPriority: number;
-    avgWorkforceScore: number;
-    avgFinancingScore: number;
-    totalOrganizations: number;
-    activeCoordinators: number;
-    reportsThisMonth: number;
-  };
-  countries: Array<{
-    id: number;
-    country_name: string;
-    region: string;
-    reform_score: number;
-    reform_tier: string;
-    priority_level: "High Priority" | "Medium Priority" | "Low Priority";
-    sdg3_score: number;
-    workforce_score: number;
-    financing_score: number;
-    implementation_status: string;
-    population: number;
-  }>;
-  reports: Array<{
-    id: number;
-    title: string;
-    country: string;
-    submitted_at: string;
-    status: string;
-  }>;
-  aiInsights?: {
-    summary: string;
-    riskAlert: string;
-    opportunity: string;
-    recommendation: string;
-  };
-  trends?: {
-    reformProgress: number;
-    sdgProgress: number;
-    implementationGap: number;
-  };
+// Type definitions
+interface CountryData {
+  id: number;
+  country_name: string;
+  region: string;
+  reform_score: number;
+  reform_tier: string;
+  priority_level: string;
+  sdg3_score: number;
+  sdg10_score: number;
+  sdg16_score: number;
+  agenda2063_score: number;
+  implementation_score: number;
+  law_status: string;
+  implementation_status: string;
+  budget_level: string;
+  strategy: string;
+  funding_gap_level: string;
+  investment_priority: string;
+  estimated_investment_need: number;
+  donor_readiness_score: number;
+  created_at: string;
 }
 
-// Mock data for demonstration
-const mockDashboardData: ExecutiveDashboardData = {
-  metrics: {
-    totalCountries: 54,
-    avgReformScore: 55,
-    avgSDG3: 52,
-    highPriority: 32,
-    avgWorkforceScore: 42,
-    avgFinancingScore: 38,
-    totalOrganizations: 245,
-    activeCoordinators: 42,
-    reportsThisMonth: 28,
-  },
-  countries: [
-    { id: 1, country_name: "Mauritius", region: "Island States", reform_score: 85, reform_tier: "Tier 4 - Moderate Systems", priority_level: "Low Priority", sdg3_score: 88, workforce_score: 75, financing_score: 82, implementation_status: "Partial", population: 1.3 },
-    { id: 2, country_name: "South Africa", region: "Southern Africa", reform_score: 81, reform_tier: "Tier 4 - Moderate Systems", priority_level: "Medium Priority", sdg3_score: 78, workforce_score: 75, financing_score: 70, implementation_status: "Partial", population: 60.1 },
-    { id: 3, country_name: "Rwanda", region: "East Africa", reform_score: 77, reform_tier: "Tier 2 - Law Exists", priority_level: "Medium Priority", sdg3_score: 75, workforce_score: 70, financing_score: 68, implementation_status: "Partial", population: 13.3 },
-    { id: 4, country_name: "Kenya", region: "East Africa", reform_score: 74, reform_tier: "Tier 2 - Law Exists", priority_level: "High Priority", sdg3_score: 72, workforce_score: 65, financing_score: 60, implementation_status: "Partial", population: 53.8 },
-    { id: 5, country_name: "Ghana", region: "West Africa", reform_score: 68, reform_tier: "Tier 2 - Law Exists", priority_level: "High Priority", sdg3_score: 70, workforce_score: 58, financing_score: 55, implementation_status: "Minimal", population: 32.8 },
-    { id: 6, country_name: "Nigeria", region: "West Africa", reform_score: 62, reform_tier: "Tier 2 - Law Exists", priority_level: "High Priority", sdg3_score: 58, workforce_score: 45, financing_score: 40, implementation_status: "Minimal", population: 218.6 },
-    { id: 7, country_name: "DR Congo", region: "Central Africa", reform_score: 16, reform_tier: "Tier 1 - System Failure", priority_level: "High Priority", sdg3_score: 15, workforce_score: 10, financing_score: 5, implementation_status: "None", population: 89.6 },
-    { id: 8, country_name: "Somalia", region: "East Africa", reform_score: 12, reform_tier: "Tier 1 - System Failure", priority_level: "High Priority", sdg3_score: 10, workforce_score: 8, financing_score: 3, implementation_status: "None", population: 15.9 },
-  ],
-  reports: [
-    { id: 1, title: "Q4 2024 Reform Progress Report", country: "Kenya", submitted_at: "2024-03-15", status: "Under Review" },
-    { id: 2, title: "Mental Health Act Implementation Assessment", country: "Nigeria", submitted_at: "2024-03-14", status: "Pending" },
-    { id: 3, title: "Workforce Capacity Study", country: "South Africa", submitted_at: "2024-03-12", status: "Approved" },
-  ],
-  aiInsights: {
-    summary: "Continental reform progress shows +8% year-over-year growth with East Africa leading implementation acceleration.",
-    riskAlert: "Multiple countries remain without fully operational mental health legislation and implementation frameworks.",
-    opportunity: "Community workforce expansion and suicide decriminalization reforms present high-impact donor opportunities.",
-    recommendation: "Prioritize technical assistance for Tier 1 and Tier 2 countries to accelerate implementation.",
-  },
-  trends: {
-    reformProgress: 8,
-    sdgProgress: 5,
-    implementationGap: 65,
-  },
-};
+interface ReportData {
+  id: number;
+  title: string;
+  country: string;
+  submitted_at: string;
+  status: string;
+}
 
+interface DashboardMetrics {
+  totalCountries: number;
+  avgReformScore: number;
+  avgSDG3: number;
+  highPriority: number;
+  avgWorkforceScore: number;
+  avgFinancingScore: number;
+  totalOrganizations: number;
+  activeCoordinators: number;
+  reportsThisMonth: number;
+  criticalFundingGap: number;
+  avgDonorReadiness: number;
+  totalInvestmentNeed: number;
+}
+
+interface AIInsights {
+  summary: string;
+  riskAlert: string;
+  opportunity: string;
+  recommendation: string;
+}
+
+interface DashboardTrends {
+  reformProgress: number;
+  sdgProgress: number;
+  implementationGap: number;
+}
+
+interface DashboardData {
+  success: boolean;
+  metrics: DashboardMetrics;
+  countries: CountryData[];
+  reports: ReportData[];
+  aiInsights: AIInsights;
+  trends: DashboardTrends;
+  message?: string;
+  error?: string;
+}
+
+// Helper functions
 const getPriorityConfig = (priority: string) => {
-  switch (priority) {
-    case "High Priority": return { icon: Flame, color: "text-red-400", bg: "bg-red-500/20", border: "border-red-500/30", label: "High Priority" };
-    case "Medium Priority": return { icon: Zap, color: "text-yellow-400", bg: "bg-yellow-500/20", border: "border-yellow-500/30", label: "Medium Priority" };
-    default: return { icon: Leaf, color: "text-emerald-400", bg: "bg-emerald-500/20", border: "border-emerald-500/30", label: "Low Priority" };
+  if (!priority) return { icon: Leaf, color: "text-slate-400", bg: "bg-slate-500/20", border: "border-slate-500/30", label: "Unknown" };
+  
+  const lowerPriority = priority.toLowerCase();
+  if (lowerPriority.includes("high") || lowerPriority.includes("🔥")) {
+    return { icon: Flame, color: "text-red-400", bg: "bg-red-500/20", border: "border-red-500/30", label: "High Priority" };
   }
+  if (lowerPriority.includes("medium") || lowerPriority.includes("⚡")) {
+    return { icon: Zap, color: "text-yellow-400", bg: "bg-yellow-500/20", border: "border-yellow-500/30", label: "Medium Priority" };
+  }
+  return { icon: Leaf, color: "text-emerald-400", bg: "bg-emerald-500/20", border: "border-emerald-500/30", label: "Low Priority" };
 };
 
-const getScoreColor = (score: number) => {
+const getScoreColor = (score: number): string => {
   if (score >= 80) return "text-emerald-400";
   if (score >= 70) return "text-cyan-400";
   if (score >= 60) return "text-blue-400";
@@ -143,44 +128,127 @@ const getTrendIcon = (value: number | undefined) => {
   return null;
 };
 
+const getLawStatusBadge = (status: string): { color: string; label: string } => {
+  if (!status) return { color: "bg-slate-500/20 text-slate-400", label: "Unknown" };
+  if (status.includes("✅")) return { color: "bg-emerald-500/20 text-emerald-400", label: "Modern" };
+  if (status.includes("⚠️")) return { color: "bg-yellow-500/20 text-yellow-400", label: "Outdated" };
+  if (status.includes("❌")) return { color: "bg-red-500/20 text-red-400", label: "None" };
+  return { color: "bg-slate-500/20 text-slate-400", label: "Unknown" };
+};
+
+const getImplementationBadge = (status: string): { color: string; label: string } => {
+  if (!status) return { color: "bg-slate-500/20 text-slate-400", label: "Unknown" };
+  if (status.includes("🟢")) return { color: "bg-emerald-500/20 text-emerald-400", label: "Moderate" };
+  if (status.includes("🟡")) return { color: "bg-yellow-500/20 text-yellow-400", label: "Weak" };
+  if (status.includes("🔴")) return { color: "bg-red-500/20 text-red-400", label: "Minimal" };
+  return { color: "bg-slate-500/20 text-slate-400", label: "Unknown" };
+};
+
 export default function ExecutiveDashboardPage() {
-  const [dashboard, setDashboard] = useState<ExecutiveDashboardData | null>(null);
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDashboard();
-    setLastUpdated(new Date().toLocaleString());
   }, []);
 
   const fetchDashboard = async () => {
     setLoading(true);
+    setError(null);
     try {
       const response = await fetch("/api/executive-dashboard");
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.metrics) {
-          setDashboard(data);
-        } else {
-          setDashboard(mockDashboardData);
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data: DashboardData = await response.json();
+      
+      if (data.success) {
+        setDashboard(data);
+        setLastUpdated(new Date().toLocaleString());
       } else {
-        setDashboard(mockDashboardData);
+        setError(data.message || "Failed to load dashboard data");
+        // Set empty dashboard data
+        setDashboard({
+          success: false,
+          metrics: {
+            totalCountries: 0,
+            avgReformScore: 0,
+            avgSDG3: 0,
+            highPriority: 0,
+            avgWorkforceScore: 0,
+            avgFinancingScore: 0,
+            totalOrganizations: 0,
+            activeCoordinators: 0,
+            reportsThisMonth: 0,
+            criticalFundingGap: 0,
+            avgDonorReadiness: 0,
+            totalInvestmentNeed: 0,
+          },
+          countries: [],
+          reports: [],
+          aiInsights: {
+            summary: "No data available. Please add country data.",
+            riskAlert: "Data collection is ongoing.",
+            opportunity: "Start by adding mental health reforms data.",
+            recommendation: "Import data to enable analytics.",
+          },
+          trends: {
+            reformProgress: 0,
+            sdgProgress: 0,
+            implementationGap: 0,
+          },
+        });
       }
     } catch (error) {
       console.error("Error fetching dashboard:", error);
-      setDashboard(mockDashboardData);
+      setError("Failed to load dashboard data. Please try again.");
+      setDashboard({
+        success: false,
+        metrics: {
+          totalCountries: 0,
+          avgReformScore: 0,
+          avgSDG3: 0,
+          highPriority: 0,
+          avgWorkforceScore: 0,
+          avgFinancingScore: 0,
+          totalOrganizations: 0,
+          activeCoordinators: 0,
+          reportsThisMonth: 0,
+          criticalFundingGap: 0,
+          avgDonorReadiness: 0,
+          totalInvestmentNeed: 0,
+        },
+        countries: [],
+        reports: [],
+        aiInsights: {
+          summary: "Error loading data. Please try refreshing.",
+          riskAlert: "Unable to load risk assessment.",
+          opportunity: "Data unavailable.",
+          recommendation: "Refresh the page or contact support.",
+        },
+        trends: {
+          reformProgress: 0,
+          sdgProgress: 0,
+          implementationGap: 0,
+        },
+      });
     } finally {
       setLoading(false);
     }
   };
 
+  // Safely access data with fallbacks
   const topCountries = dashboard?.countries
-    ? [...dashboard.countries].sort((a, b) => b.reform_score - a.reform_score).slice(0, 5)
+    ? [...dashboard.countries]
+        .sort((a, b) => b.reform_score - a.reform_score)
+        .slice(0, 5)
     : [];
   
   const priorityCountries = dashboard?.countries.filter(
-    (country) => country.priority_level === "High Priority"
+    (country) => country.priority_level && 
+      (country.priority_level.includes("High") || country.priority_level.includes("🔥"))
   ) || [];
 
   if (loading) {
@@ -215,6 +283,11 @@ export default function ExecutiveDashboardPage() {
                   <Activity className="w-4 h-4 text-green-400 animate-pulse" />
                   <span className="text-slate-400 text-xs">Live Intelligence</span>
                 </div>
+                {error && (
+                  <div className="px-3 py-1 bg-red-500/20 rounded-full border border-red-500/30">
+                    <span className="text-red-300 text-xs">{error}</span>
+                  </div>
+                )}
               </div>
               <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
                 Executive Continental Command Center
@@ -284,7 +357,7 @@ export default function ExecutiveDashboardPage() {
           <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-slate-400 text-sm uppercase tracking-wide">Workforce Capacity</p>
+                <p className="text-slate-400 text-sm uppercase tracking-wide">Implementation Score</p>
                 <h2 className={`text-4xl font-bold mt-2 ${getScoreColor(dashboard.metrics.avgWorkforceScore)}`}>
                   {dashboard.metrics.avgWorkforceScore}%
                 </h2>
@@ -298,9 +371,9 @@ export default function ExecutiveDashboardPage() {
           <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-slate-400 text-sm uppercase tracking-wide">Financing & Budget</p>
-                <h2 className={`text-4xl font-bold mt-2 ${getScoreColor(dashboard.metrics.avgFinancingScore)}`}>
-                  {dashboard.metrics.avgFinancingScore}%
+                <p className="text-slate-400 text-sm uppercase tracking-wide">Donor Readiness</p>
+                <h2 className={`text-4xl font-bold mt-2 ${getScoreColor(dashboard.metrics.avgDonorReadiness)}`}>
+                  {dashboard.metrics.avgDonorReadiness}%
                 </h2>
               </div>
               <div className="bg-emerald-500/20 p-4 rounded-2xl">
@@ -312,11 +385,11 @@ export default function ExecutiveDashboardPage() {
           <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-slate-400 text-sm uppercase tracking-wide">Active Coordinators</p>
-                <h2 className="text-4xl font-bold text-white mt-2">{dashboard.metrics.activeCoordinators}</h2>
+                <p className="text-slate-400 text-sm uppercase tracking-wide">Critical Funding Gaps</p>
+                <h2 className="text-4xl font-bold text-red-400 mt-2">{dashboard.metrics.criticalFundingGap}</h2>
               </div>
-              <div className="bg-purple-500/20 p-4 rounded-2xl">
-                <Building2 className="w-6 h-6 text-purple-400" />
+              <div className="bg-red-500/20 p-4 rounded-2xl">
+                <AlertTriangle className="w-6 h-6 text-red-400" />
               </div>
             </div>
           </div>
@@ -324,8 +397,10 @@ export default function ExecutiveDashboardPage() {
           <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-slate-400 text-sm uppercase tracking-wide">Investment Readiness</p>
-                <h2 className="text-4xl font-bold text-amber-400 mt-2">72%</h2>
+                <p className="text-slate-400 text-sm uppercase tracking-wide">Total Investment Need</p>
+                <h2 className="text-4xl font-bold text-amber-400 mt-2">
+                  ${(dashboard.metrics.totalInvestmentNeed / 1000000).toFixed(1)}M
+                </h2>
               </div>
               <div className="bg-amber-500/20 p-4 rounded-2xl">
                 <TrendingUp className="w-6 h-6 text-amber-400" />
@@ -347,36 +422,39 @@ export default function ExecutiveDashboardPage() {
                 <Award className="w-5 h-5 text-cyan-400" />
               </div>
             </div>
-            <div className="space-y-4">
-              {topCountries.map((country, index) => (
-                <div key={country.id} className="flex items-center justify-between bg-slate-700/30 p-4 rounded-xl hover:bg-slate-700/50 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${
-                      index === 0 ? "bg-yellow-500/20 text-yellow-400" :
-                      index === 1 ? "bg-slate-400/20 text-slate-400" :
-                      index === 2 ? "bg-amber-600/20 text-amber-400" :
-                      "bg-slate-700 text-slate-400"
-                    }`}>
-                      {index + 1}
+            {topCountries.length === 0 ? (
+              <div className="bg-slate-700/30 rounded-xl p-8 text-center">
+                <p className="text-slate-400">No country data available</p>
+                <p className="text-slate-500 text-sm mt-2">Add mental health reforms data to see rankings</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {topCountries.map((country, index) => (
+                  <div key={country.id} className="flex items-center justify-between bg-slate-700/30 p-4 rounded-xl hover:bg-slate-700/50 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${
+                        index === 0 ? "bg-yellow-500/20 text-yellow-400" :
+                        index === 1 ? "bg-slate-400/20 text-slate-400" :
+                        index === 2 ? "bg-amber-600/20 text-amber-400" :
+                        "bg-slate-700 text-slate-400"
+                      }`}>
+                        {index + 1}
+                      </div>
+                      <div>
+                        <h3 className="text-white font-semibold">{country.country_name}</h3>
+                        <p className="text-slate-400 text-xs">{country.region}</p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-white font-semibold">{country.country_name}</h3>
-                      <p className="text-slate-400 text-xs">{country.region}</p>
+                    <div className="text-right">
+                      <p className={`text-2xl font-bold ${getScoreColor(country.reform_score)}`}>
+                        {country.reform_score}%
+                      </p>
+                      <p className="text-slate-500 text-xs">Reform Score</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className={`text-2xl font-bold ${getScoreColor(country.reform_score)}`}>
-                      {country.reform_score}%
-                    </p>
-                    <p className="text-slate-500 text-xs">Reform Score</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <Link href="/rankings" className="inline-flex items-center gap-1 mt-4 text-cyan-400 hover:text-cyan-300 text-sm transition-colors">
-              View Full Rankings
-              <ChevronRight className="w-4 h-4" />
-            </Link>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* AI Insights */}
@@ -427,29 +505,44 @@ export default function ExecutiveDashboardPage() {
               <ShieldAlert className="w-5 h-5 text-red-400" />
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {priorityCountries.slice(0, 6).map((country) => (
-              <div key={country.id} className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 hover:bg-red-500/10 transition-colors">
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="text-lg font-semibold text-white">{country.country_name}</h3>
-                  <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs">Urgent</span>
-                </div>
-                <p className="text-slate-400 text-xs mb-3">{country.region}</p>
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-slate-500">Reform Score</span>
-                  <span className={`font-medium ${getScoreColor(country.reform_score)}`}>{country.reform_score}%</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">SDG 3.4</span>
-                  <span className="text-purple-400">{country.sdg3_score}%</span>
-                </div>
-                <Link href={`/country/${encodeURIComponent(country.country_name)}`} className="inline-flex items-center gap-1 mt-3 text-cyan-400 hover:text-cyan-300 text-xs transition-colors">
-                  View Profile
-                  <Eye className="w-3 h-3" />
-                </Link>
-              </div>
-            ))}
-          </div>
+          {priorityCountries.length === 0 ? (
+            <div className="bg-slate-700/30 rounded-xl p-8 text-center">
+              <p className="text-slate-400">No high priority countries identified</p>
+              <p className="text-slate-500 text-sm mt-2">All countries have adequate reform systems in place</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {priorityCountries.slice(0, 6).map((country) => {
+                const lawStatus = getLawStatusBadge(country.law_status);
+                const implStatus = getImplementationBadge(country.implementation_status);
+                return (
+                  <div key={country.id} className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 hover:bg-red-500/10 transition-colors">
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="text-lg font-semibold text-white">{country.country_name}</h3>
+                      <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs">Urgent</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${lawStatus.color}`}>
+                        Law: {lawStatus.label}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${implStatus.color}`}>
+                        Implement: {implStatus.label}
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-xs mb-3">{country.region}</p>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-slate-500">Reform Score</span>
+                      <span className={`font-medium ${getScoreColor(country.reform_score)}`}>{country.reform_score}%</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">SDG 3.4</span>
+                      <span className="text-purple-400">{country.sdg3_score}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Recent Reports & Activity */}
@@ -467,6 +560,7 @@ export default function ExecutiveDashboardPage() {
             {!dashboard.reports || dashboard.reports.length === 0 ? (
               <div className="bg-slate-700/30 rounded-xl p-8 text-center">
                 <p className="text-slate-400">No reports submitted yet</p>
+                <p className="text-slate-500 text-sm mt-2">Reports will appear here as they are submitted</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -511,7 +605,7 @@ export default function ExecutiveDashboardPage() {
                   <span className="text-red-400 font-bold">{dashboard.trends?.implementationGap || 0}%</span>
                 </div>
                 <div className="w-full bg-slate-700 rounded-full h-2">
-                  <div className="bg-red-500 h-2 rounded-full" style={{ width: `${dashboard.trends?.implementationGap || 0}%` }}></div>
+                  <div className="bg-red-500 h-2 rounded-full" style={{ width: `${Math.min(dashboard.trends?.implementationGap || 0, 100)}%` }}></div>
                 </div>
                 <p className="text-slate-400 text-xs mt-2">Countries with significant implementation gaps</p>
               </div>
@@ -521,8 +615,8 @@ export default function ExecutiveDashboardPage() {
                   <p className="text-2xl font-bold text-green-400">{dashboard.metrics.avgSDG3}%</p>
                 </div>
                 <div className="bg-slate-700/30 rounded-xl p-3 text-center">
-                  <p className="text-slate-400 text-xs">Org Participation</p>
-                  <p className="text-2xl font-bold text-purple-400">{dashboard.metrics.totalOrganizations}</p>
+                  <p className="text-slate-400 text-xs">Implementation Score</p>
+                  <p className="text-2xl font-bold text-blue-400">{dashboard.metrics.avgWorkforceScore}%</p>
                 </div>
               </div>
             </div>
