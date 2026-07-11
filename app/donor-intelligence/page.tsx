@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback, useTransition } from "react";
 import {
   TrendingUp,
   TrendingDown,
@@ -33,6 +33,8 @@ import {
   Briefcase,
   Shield,
   Heart,
+  X,
+  Loader2,
 } from "lucide-react";
 import {
   BarChart,
@@ -44,7 +46,7 @@ import {
   PieChart as RePieChart,
   Pie,
   Cell,
-  Legend, 
+  Legend,
 } from "recharts";
 
 interface DonorCountry {
@@ -66,7 +68,7 @@ interface DonorCountry {
   last_updated: string;
 }
 
-// Mock data for demonstration
+// Expanded mock data with more countries
 const mockDonorData: DonorCountry[] = [
   {
     id: 1,
@@ -281,23 +283,53 @@ const getRiskConfig = (level: string) => {
   }
 };
 
+// Debounce helper
+function debounce<T extends (...args: any[]) => void>(fn: T, delay: number) {
+  let timeoutId: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn(...args), delay);
+  };
+}
+
 export default function DonorIntelligencePage() {
   const [countries, setCountries] = useState<DonorCountry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("all");
   const [selectedPriority, setSelectedPriority] = useState("all");
   const [selectedRisk, setSelectedRisk] = useState("all");
   const [selectedCountry, setSelectedCountry] = useState<DonorCountry | null>(null);
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isPending, startTransition] = useTransition();
 
+  // Load data on mount
   useEffect(() => {
     fetchDonorData();
   }, []);
 
-  const fetchDonorData = async () => {
-    setLoading(true);
+  // Handle escape key for modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectedCountry) {
+        setSelectedCountry(null);
+      }
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [selectedCountry]);
+
+  const fetchDonorData = async (showRefresh = false) => {
+    if (showRefresh) setIsRefreshing(true);
+    else setLoading(true);
+    setError(null);
+
     try {
+      // Simulate network delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       const response = await fetch("/api/donor-intelligence");
       if (response.ok) {
         const data = await response.json();
@@ -307,15 +339,26 @@ export default function DonorIntelligencePage() {
           setCountries(mockDonorData);
         }
       } else {
+        // Fallback to mock data if API fails
         setCountries(mockDonorData);
       }
     } catch (error) {
       console.error("Error fetching donor data:", error);
+      setError("Failed to load investment data. Using cached data.");
       setCountries(mockDonorData);
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
+
+  // Debounced search handler
+  const handleSearch = useCallback(
+    debounce((value: string) => {
+      setSearchTerm(value);
+    }, 300),
+    []
+  );
 
   const filteredCountries = useMemo(() => {
     return countries.filter(country => {
@@ -327,30 +370,76 @@ export default function DonorIntelligencePage() {
     });
   }, [countries, searchTerm, selectedRegion, selectedPriority, selectedRisk]);
 
-  const stats = {
-    totalCountries: countries.length,
-    totalFundingGap: countries.reduce((acc, c) => acc + (c.estimated_investment_need - c.current_funding), 0),
-    criticalGap: countries.filter(c => c.funding_gap_level === "Critical").length,
-    highGap: countries.filter(c => c.funding_gap_level === "High").length,
-    avgReadiness: Math.round(countries.reduce((acc, c) => acc + c.donor_readiness_score, 0) / countries.length),
-    totalNeed: countries.reduce((acc, c) => acc + c.estimated_investment_need, 0),
-  };
+  const stats = useMemo(() => {
+    const totalFundingGap = countries.reduce((acc, c) => acc + (c.estimated_investment_need - c.current_funding), 0);
+    const avgReadiness = countries.length > 0 ? Math.round(countries.reduce((acc, c) => acc + c.donor_readiness_score, 0) / countries.length) : 0;
+    const totalNeed = countries.reduce((acc, c) => acc + c.estimated_investment_need, 0);
+
+    return {
+      totalCountries: countries.length,
+      totalFundingGap,
+      criticalGap: countries.filter(c => c.funding_gap_level === "Critical").length,
+      highGap: countries.filter(c => c.funding_gap_level === "High").length,
+      avgReadiness,
+      totalNeed,
+      urgentPriority: countries.filter(c => c.investment_priority === "🔥 Urgent").length,
+    };
+  }, [countries]);
 
   // Chart data
-  const priorityDistribution = [
+  const priorityDistribution = useMemo(() => [
     { name: "Urgent", value: countries.filter(c => c.investment_priority === "🔥 Urgent").length, color: "#ef4444" },
     { name: "High", value: countries.filter(c => c.investment_priority === "⚡ High").length, color: "#facc15" },
     { name: "Medium", value: countries.filter(c => c.investment_priority === "📈 Medium").length, color: "#3b82f6" },
     { name: "Low", value: countries.filter(c => c.investment_priority === "🌱 Low").length, color: "#10b981" },
-  ];
+  ], [countries]);
 
-  const topOpportunities = [...countries].sort((a, b) => b.roi_potential - a.roi_potential).slice(0, 5);
+  const topOpportunities = useMemo(() => {
+    return [...countries]
+      .sort((a, b) => b.roi_potential - a.roi_potential)
+      .slice(0, 5);
+  }, [countries]);
+
+  // Handle export
+  const handleExport = useCallback(() => {
+    try {
+      const headers = ["Country", "Region", "Funding Gap Score", "Priority", "Estimated Need", "Current Funding", "Donor Readiness", "ROI Potential", "Risk Level"];
+      const rows = filteredCountries.map(c => [
+        c.country_name,
+        c.region,
+        c.funding_gap_score,
+        c.investment_priority,
+        c.estimated_investment_need,
+        c.current_funding,
+        c.donor_readiness_score,
+        c.roi_potential,
+        c.risk_level
+      ]);
+
+      const csvContent = [
+        headers.join(","),
+        ...rows.map(row => row.join(","))
+      ].join("\n");
+
+      const blob = new Blob([csvContent], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `donor-intelligence-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Export failed:", error);
+    }
+  }, [filteredCountries]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <Loader2 className="w-16 h-16 text-cyan-500 animate-spin mx-auto mb-4" />
           <p className="text-slate-300">Loading investment intelligence data...</p>
         </div>
       </div>
@@ -364,7 +453,7 @@ export default function DonorIntelligencePage() {
         <div className="relative px-6 md:px-8 py-8 md:py-10">
           <div className="flex justify-between items-start flex-wrap gap-4">
             <div>
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <div className="px-3 py-1 bg-cyan-500/20 rounded-full border border-cyan-500/30">
                   <span className="text-cyan-300 text-xs font-mono tracking-wider">
                     INVESTMENT INTELLIGENCE
@@ -385,13 +474,19 @@ export default function DonorIntelligencePage() {
 
             <div className="flex gap-2">
               <button
-                onClick={fetchDonorData}
-                className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
+                onClick={() => fetchDonorData(true)}
+                disabled={isRefreshing}
+                className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Refresh data"
               >
-                <RefreshCw className="w-4 h-4" />
-                <span className="text-sm hidden sm:inline">Refresh</span>
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                <span className="text-sm hidden sm:inline">{isRefreshing ? "Refreshing..." : "Refresh"}</span>
               </button>
-              <button className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors">
+              <button
+                onClick={handleExport}
+                className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
+                aria-label="Export data"
+              >
                 <Download className="w-4 h-4" />
                 <span className="text-sm hidden sm:inline">Export</span>
               </button>
@@ -401,37 +496,51 @@ export default function DonorIntelligencePage() {
       </div>
 
       <div className="px-4 md:px-8 py-6">
+        {/* Error Banner */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <p className="text-red-300 text-sm">{error}</p>
+            <button
+              onClick={() => setError(null)}
+              className="ml-auto text-red-400 hover:text-red-300"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
-          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 hover:border-cyan-500/30 transition-colors">
             <div className="flex items-center gap-2 mb-2">
               <Globe className="w-4 h-4 text-cyan-400" />
               <p className="text-slate-400 text-xs">Countries Analyzed</p>
             </div>
             <p className="text-2xl font-bold text-white">{stats.totalCountries}</p>
           </div>
-          <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/20">
+          <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/20 hover:border-red-500/40 transition-colors">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-4 h-4 text-red-400" />
               <p className="text-red-400 text-xs">Critical Funding Gap</p>
             </div>
             <p className="text-2xl font-bold text-red-400">{stats.criticalGap}</p>
           </div>
-          <div className="bg-orange-500/10 rounded-xl p-4 border border-orange-500/20">
+          <div className="bg-orange-500/10 rounded-xl p-4 border border-orange-500/20 hover:border-orange-500/40 transition-colors">
             <div className="flex items-center gap-2 mb-2">
               <Target className="w-4 h-4 text-orange-400" />
-              <p className="text-orange-400 text-xs">High Priority</p>
+              <p className="text-orange-400 text-xs">Urgent Priority</p>
             </div>
-            <p className="text-2xl font-bold text-orange-400">{stats.highGap}</p>
+            <p className="text-2xl font-bold text-orange-400">{stats.urgentPriority}</p>
           </div>
-          <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20">
+          <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20 hover:border-emerald-500/40 transition-colors">
             <div className="flex items-center gap-2 mb-2">
               <Percent className="w-4 h-4 text-emerald-400" />
               <p className="text-emerald-400 text-xs">Avg Donor Readiness</p>
             </div>
             <p className="text-2xl font-bold text-emerald-400">{stats.avgReadiness}%</p>
           </div>
-          <div className="bg-purple-500/10 rounded-xl p-4 border border-purple-500/20">
+          <div className="bg-purple-500/10 rounded-xl p-4 border border-purple-500/20 hover:border-purple-500/40 transition-colors">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="w-4 h-4 text-purple-400" />
               <p className="text-purple-400 text-xs">Total Need</p>
@@ -443,7 +552,7 @@ export default function DonorIntelligencePage() {
         {/* Charts Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Priority Distribution Pie Chart */}
-          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
+          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 hover:border-cyan-500/20 transition-colors">
             <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
               <PieChart className="w-5 h-5 text-cyan-400" />
               Investment Priority Distribution
@@ -459,13 +568,16 @@ export default function DonorIntelligencePage() {
                     outerRadius={90}
                     paddingAngle={2}
                     dataKey="value"
-                    label={({ name, percent = 1 }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, percent = 0 }) => `${name}: ${(percent * 100).toFixed(0)}%`}
                   >
                     {priorityDistribution.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#0f172a' }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', borderColor: '#0f172a' }}
+                    formatter={(value) => [`${value} countries`, 'Count']}
+                  />
                   <Legend />
                 </RePieChart>
               </ResponsiveContainer>
@@ -473,14 +585,18 @@ export default function DonorIntelligencePage() {
           </div>
 
           {/* Top ROI Opportunities */}
-          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
+          <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 hover:border-cyan-500/20 transition-colors">
             <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-emerald-400" />
               Top ROI Opportunities
             </h3>
             <div className="space-y-3">
               {topOpportunities.map((country, idx) => (
-                <div key={country.id} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-xl">
+                <div
+                  key={country.id}
+                  className="flex items-center justify-between p-3 bg-slate-700/30 rounded-xl hover:bg-slate-700/50 transition-colors cursor-pointer"
+                  onClick={() => setSelectedCountry(country)}
+                >
                   <div className="flex items-center gap-3">
                     <span className="text-slate-400 text-sm font-mono">#{idx + 1}</span>
                     <div>
@@ -494,6 +610,9 @@ export default function DonorIntelligencePage() {
                   </div>
                 </div>
               ))}
+              {topOpportunities.length === 0 && (
+                <p className="text-slate-400 text-center py-4">No data available</p>
+              )}
             </div>
           </div>
         </div>
@@ -506,17 +625,19 @@ export default function DonorIntelligencePage() {
               <input
                 type="text"
                 placeholder="Search countries..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                defaultValue={searchTerm}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
+                aria-label="Search countries"
               />
             </div>
           </div>
 
           <select
             value={selectedRegion}
-            onChange={(e) => setSelectedRegion(e.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
+            onChange={(e) => startTransition(() => setSelectedRegion(e.target.value))}
+            className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
+            aria-label="Filter by region"
           >
             {regions.map(region => (
               <option key={region} value={region}>
@@ -527,8 +648,9 @@ export default function DonorIntelligencePage() {
 
           <select
             value={selectedPriority}
-            onChange={(e) => setSelectedPriority(e.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
+            onChange={(e) => startTransition(() => setSelectedPriority(e.target.value))}
+            className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
+            aria-label="Filter by priority"
           >
             <option value="all">All Priorities</option>
             <option value="🔥 Urgent">Urgent Priority 🔥</option>
@@ -539,8 +661,9 @@ export default function DonorIntelligencePage() {
 
           <select
             value={selectedRisk}
-            onChange={(e) => setSelectedRisk(e.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
+            onChange={(e) => startTransition(() => setSelectedRisk(e.target.value))}
+            className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
+            aria-label="Filter by risk level"
           >
             <option value="all">All Risk Levels</option>
             <option value="High">High Risk</option>
@@ -551,17 +674,25 @@ export default function DonorIntelligencePage() {
           <div className="flex bg-slate-800 rounded-xl p-1">
             <button
               onClick={() => setViewMode("table")}
-              className={`px-4 py-2 rounded-lg text-sm transition-all ${viewMode === "table" ? "bg-cyan-600 text-white" : "text-slate-400 hover:text-white"}`}
+              className={`px-4 py-2 rounded-lg text-sm transition-all ${viewMode === "table" ? "bg-cyan-600 text-white shadow-lg shadow-cyan-500/20" : "text-slate-400 hover:text-white"}`}
+              aria-label="Table view"
             >
               Table
             </button>
             <button
               onClick={() => setViewMode("cards")}
-              className={`px-4 py-2 rounded-lg text-sm transition-all ${viewMode === "cards" ? "bg-cyan-600 text-white" : "text-slate-400 hover:text-white"}`}
+              className={`px-4 py-2 rounded-lg text-sm transition-all ${viewMode === "cards" ? "bg-cyan-600 text-white shadow-lg shadow-cyan-500/20" : "text-slate-400 hover:text-white"}`}
+              aria-label="Cards view"
             >
               Cards
             </button>
           </div>
+        </div>
+
+        {/* Results count */}
+        <div className="mb-4 text-slate-400 text-sm">
+          Showing {filteredCountries.length} of {countries.length} countries
+          {isPending && <span className="ml-2 text-cyan-400">(updating...)</span>}
         </div>
 
         {/* Table View */}
@@ -569,7 +700,7 @@ export default function DonorIntelligencePage() {
           <div className="bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1000px]">
-                <thead className="bg-slate-900/50">
+                <thead className="bg-slate-900/50 sticky top-0">
                   <tr>
                     <th className="text-left p-4 text-slate-400 text-sm font-medium">Country</th>
                     <th className="text-left p-4 text-slate-400 text-sm font-medium">Funding Gap</th>
@@ -586,7 +717,7 @@ export default function DonorIntelligencePage() {
                     const priorityConfig = getPriorityConfig(country.investment_priority);
                     const riskConfig = getRiskConfig(country.risk_level);
                     const PriorityIcon = priorityConfig.icon;
-                    
+
                     return (
                       <tr key={country.id} className="border-t border-slate-700/50 hover:bg-slate-700/30 transition-colors">
                         <td className="p-4">
@@ -597,8 +728,11 @@ export default function DonorIntelligencePage() {
                         </td>
                         <td className="p-4">
                           <div className="flex items-center gap-2">
-                            <div className="w-20 bg-slate-700 rounded-full h-2">
-                              <div className={`h-2 rounded-full ${country.funding_gap_score >= 80 ? "bg-red-500" : country.funding_gap_score >= 60 ? "bg-orange-500" : "bg-yellow-500"}`} style={{ width: `${country.funding_gap_score}%` }}></div>
+                            <div className="w-20 bg-slate-700 rounded-full h-2" role="progressbar" aria-valuenow={country.funding_gap_score} aria-valuemin={0} aria-valuemax={100}>
+                              <div
+                                className={`h-2 rounded-full ${country.funding_gap_score >= 80 ? "bg-red-500" : country.funding_gap_score >= 60 ? "bg-orange-500" : "bg-yellow-500"}`}
+                                style={{ width: `${country.funding_gap_score}%` }}
+                              ></div>
                             </div>
                             <span className={`text-sm font-medium ${country.funding_gap_score >= 80 ? "text-red-400" : country.funding_gap_score >= 60 ? "text-orange-400" : "text-yellow-400"}`}>
                               {country.funding_gap_score}%
@@ -616,7 +750,7 @@ export default function DonorIntelligencePage() {
                         </td>
                         <td className="p-4">
                           <div className="flex items-center gap-2">
-                            <div className="w-20 bg-slate-700 rounded-full h-2">
+                            <div className="w-20 bg-slate-700 rounded-full h-2" role="progressbar" aria-valuenow={country.donor_readiness_score} aria-valuemin={0} aria-valuemax={100}>
                               <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${country.donor_readiness_score}%` }}></div>
                             </div>
                             <span className="text-white text-sm">{country.donor_readiness_score}%</span>
@@ -637,6 +771,7 @@ export default function DonorIntelligencePage() {
                           <button
                             onClick={() => setSelectedCountry(country)}
                             className="p-2 hover:bg-slate-600 rounded-lg transition-colors"
+                            aria-label={`View details for ${country.country_name}`}
                           >
                             <Eye className="w-4 h-4 text-slate-400" />
                           </button>
@@ -657,12 +792,20 @@ export default function DonorIntelligencePage() {
               const priorityConfig = getPriorityConfig(country.investment_priority);
               const riskConfig = getRiskConfig(country.risk_level);
               const PriorityIcon = priorityConfig.icon;
-              
+
               return (
                 <div
                   key={country.id}
-                  className={`bg-slate-800/50 rounded-2xl border ${priorityConfig.border} hover:shadow-lg transition-all cursor-pointer overflow-hidden`}
+                  className={`bg-slate-800/50 rounded-2xl border ${priorityConfig.border} hover:shadow-lg hover:shadow-cyan-500/5 transition-all cursor-pointer overflow-hidden hover:scale-[1.02]`}
                   onClick={() => setSelectedCountry(country)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedCountry(country);
+                    }
+                  }}
                 >
                   <div className="p-6">
                     <div className="flex justify-between items-start mb-4">
@@ -685,8 +828,11 @@ export default function DonorIntelligencePage() {
                           <span className="text-slate-400">Funding Gap</span>
                           <span className={`font-medium ${country.funding_gap_score >= 80 ? "text-red-400" : "text-yellow-400"}`}>{country.funding_gap_score}%</span>
                         </div>
-                        <div className="w-full bg-slate-700 rounded-full h-2">
-                          <div className={`h-2 rounded-full ${country.funding_gap_score >= 80 ? "bg-red-500" : "bg-orange-500"}`} style={{ width: `${country.funding_gap_score}%` }}></div>
+                        <div className="w-full bg-slate-700 rounded-full h-2" role="progressbar" aria-valuenow={country.funding_gap_score} aria-valuemin={0} aria-valuemax={100}>
+                          <div
+                            className={`h-2 rounded-full ${country.funding_gap_score >= 80 ? "bg-red-500" : "bg-orange-500"}`}
+                            style={{ width: `${country.funding_gap_score}%` }}
+                          ></div>
                         </div>
                       </div>
 
@@ -731,20 +877,45 @@ export default function DonorIntelligencePage() {
             <DollarSign className="w-16 h-16 text-slate-600 mx-auto mb-4" />
             <p className="text-slate-400 text-lg">No investment data found</p>
             <p className="text-slate-500 text-sm mt-2">Try adjusting your filters</p>
+            <button
+              onClick={() => {
+                setSearchTerm("");
+                setSelectedRegion("all");
+                setSelectedPriority("all");
+                setSelectedRisk("all");
+              }}
+              className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm transition-colors"
+            >
+              Reset Filters
+            </button>
           </div>
         )}
 
         {/* Country Detail Modal */}
         {selectedCountry && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setSelectedCountry(null)}>
-            <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="p-6 border-b border-slate-700">
+          <div
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+            onClick={() => setSelectedCountry(null)}
+          >
+            <div
+              className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-labelledby="country-detail-title"
+            >
+              <div className="p-6 border-b border-slate-700 sticky top-0 bg-slate-800 z-10">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h2 className="text-2xl font-bold text-white">{selectedCountry.country_name}</h2>
+                    <h2 id="country-detail-title" className="text-2xl font-bold text-white">{selectedCountry.country_name}</h2>
                     <p className="text-slate-400">{selectedCountry.region}</p>
                   </div>
-                  <button onClick={() => setSelectedCountry(null)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+                  <button
+                    onClick={() => setSelectedCountry(null)}
+                    className="text-slate-400 hover:text-white text-2xl p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                    aria-label="Close modal"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
                 </div>
               </div>
               <div className="p-6 space-y-4">
@@ -773,7 +944,7 @@ export default function DonorIntelligencePage() {
                   <ul className="space-y-1">
                     {selectedCountry.key_gaps.map((gap, idx) => (
                       <li key={idx} className="text-slate-300 text-sm flex items-center gap-2">
-                        <AlertTriangle className="w-3 h-3 text-yellow-400" />
+                        <AlertTriangle className="w-3 h-3 text-yellow-400 flex-shrink-0" />
                         {gap}
                       </li>
                     ))}
@@ -792,11 +963,15 @@ export default function DonorIntelligencePage() {
                 <div className="bg-slate-700/30 rounded-lg p-4">
                   <p className="text-white text-sm font-semibold mb-2">Investment Case</p>
                   <p className="text-slate-300 text-sm">
-                    {selectedCountry.country_name} has a {selectedCountry.funding_gap_level.toLowerCase()} funding gap with 
-                    {selectedCountry.donor_readiness_score >= 70 ? " strong" : selectedCountry.donor_readiness_score >= 50 ? " moderate" : " limited"} donor readiness. 
-                    Investment of ${((selectedCountry.estimated_investment_need - selectedCountry.current_funding) / 1000000).toFixed(1)}M could yield 
+                    {selectedCountry.country_name} has a {selectedCountry.funding_gap_level.toLowerCase()} funding gap with
+                    {selectedCountry.donor_readiness_score >= 70 ? " strong" : selectedCountry.donor_readiness_score >= 50 ? " moderate" : " limited"} donor readiness.
+                    Investment of ${((selectedCountry.estimated_investment_need - selectedCountry.current_funding) / 1000000).toFixed(1)}M could yield
                     {selectedCountry.roi_potential}% return on investment.
                   </p>
+                </div>
+
+                <div className="text-slate-500 text-xs text-right pt-2 border-t border-slate-700/50">
+                  Last updated: {new Date(selectedCountry.last_updated).toLocaleDateString()}
                 </div>
               </div>
             </div>

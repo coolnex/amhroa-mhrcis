@@ -21,6 +21,7 @@ import {
   UserPlus,
   Handshake,
   Share2,
+  UsersIcon,
   Copy,
   Check,
   MessageSquare,
@@ -74,6 +75,17 @@ interface CoalitionMember {
   joined_at: string;
 }
 
+interface ActionMetric {
+  id: string;
+  action_id: string;
+  reach: number;
+  engagement: number;
+  recorded_at: string;
+  recorded_by: string;
+  recorded_by_name?: string;
+  notes?: string;
+}
+
 interface Action {
   id: string;
   title: string;
@@ -83,8 +95,16 @@ interface Action {
   progress: number;
   assigned_to: string;
   assigned_to_name?: string;
+  target_audience : string;
   due_date: string;
   completed_at?: string;
+  results?: {
+    reach?: number;
+    engagement?: number;
+    [key: string]: any;
+  };
+  total_reach?: number;
+  total_engagement?: number;
 }
 
 interface Supporter {
@@ -156,6 +176,27 @@ export default function CampaignDetailPage() {
 
   // Users for assignment
   const [users, setUsers] = useState<any[]>([]);
+
+  const [showMetricsModal, setShowMetricsModal] = useState(false);
+  const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
+  const [metricsForm, setMetricsForm] = useState({
+    reach: 0,
+    engagement: 0,
+    notes: "",
+  });
+  const [submittingMetrics, setSubmittingMetrics] = useState(false);
+  const [actionMetrics, setActionMetrics] = useState<Record<string, ActionMetric[]>>({});
+  const [showEditActionModal, setShowEditActionModal] = useState(false);
+  const [editingAction, setEditingAction] = useState<Action | null>(null);
+  const [editActionForm, setEditActionForm] = useState({
+    title: "",
+    description: "",
+    type: "",
+    target_audience: "",
+    due_date: "",
+    assigned_to: "",
+  });
+  const [submittingEditAction, setSubmittingEditAction] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -231,13 +272,13 @@ export default function CampaignDetailPage() {
           creatorName = creatorData.full_name || "Unknown";
         }
       }
-
+  
       // Get supporter count
       const { count: supporterCount, error: countError } = await supabase
         .from("advocacy_supporters")
         .select("*", { count: "exact", head: true })
         .eq("campaign_id", campaignId);
-
+  
       if (countError) {
         console.error("❌ Supporter count error:", countError);
       }
@@ -267,7 +308,6 @@ export default function CampaignDetailPage() {
         .eq("campaign_id", campaignId);
   
       if (!coalitionError && coalitionData) {
-        // Get organization details separately
         const coalitionWithOrgs = await Promise.all(
           coalitionData.map(async (member) => {
             let orgName = "Unknown Organization";
@@ -298,7 +338,7 @@ export default function CampaignDetailPage() {
         setCoalitionMembers(coalitionWithOrgs);
       }
   
-      // Fetch actions
+      // Fetch actions with metrics
       const { data: actionsData, error: actionsError } = await supabase
         .from("advocacy_actions")
         .select("*")
@@ -306,9 +346,9 @@ export default function CampaignDetailPage() {
         .order("due_date", { ascending: true });
   
       if (!actionsError && actionsData) {
-        // Get assignee names separately
-        const actionsWithNames = await Promise.all(
+        const actionsWithNamesAndMetrics = await Promise.all(
           actionsData.map(async (action) => {
+            // Get assignee name
             let assignedToName = "Unassigned";
             if (action.assigned_to) {
               const { data: userData } = await supabase
@@ -316,17 +356,23 @@ export default function CampaignDetailPage() {
                 .select("full_name")
                 .eq("id", action.assigned_to)
                 .maybeSingle();
-              if (userData) {
-                assignedToName = userData.full_name || "Unassigned";
-              }
+              if (userData) assignedToName = userData.full_name || "Unassigned";
             }
+  
+            // Get metrics from results field
+            const results = action.results || {};
+            const totalReach = results.reach || 0;
+            const totalEngagement = results.engagement || 0;
+  
             return {
               ...action,
               assigned_to_name: assignedToName,
+              total_reach: totalReach,
+              total_engagement: totalEngagement,
             };
           })
         );
-        setActions(actionsWithNames);
+        setActions(actionsWithNamesAndMetrics);
       }
   
       // Fetch supporters
@@ -337,7 +383,6 @@ export default function CampaignDetailPage() {
         .order("joined_at", { ascending: false });
   
       if (!supportersError && supportersData) {
-        // Get user names separately
         const supportersWithNames = await Promise.all(
           supportersData.map(async (supporter) => {
             let userName = "Anonymous";
@@ -376,6 +421,137 @@ export default function CampaignDetailPage() {
       setLoading(false);
     }
   };
+  
+  // Update handleSaveMetrics to properly update the results field
+  const handleSaveMetrics = async () => {
+    if (!selectedActionId) return;
+    
+    setSubmittingMetrics(true);
+    try {
+      // Find the action to get its current results
+      const action = actions.find(a => a.id === selectedActionId);
+      if (!action) {
+        alert("Action not found");
+        return;
+      }
+  
+      // Get current results or initialize
+      const currentResults = action.results || {};
+      const newReach = (currentResults.reach || 0) + metricsForm.reach;
+      const newEngagement = (currentResults.engagement || 0) + metricsForm.engagement;
+  
+      // Update the action's results field
+      const { error: updateError } = await supabase
+        .from("advocacy_actions")
+        .update({
+          results: {
+            reach: newReach,
+            engagement: newEngagement,
+            last_updated: new Date().toISOString(),
+            notes: metricsForm.notes || currentResults.notes || "",
+            history: [
+              ...(currentResults.history || []),
+              {
+                reach: metricsForm.reach,
+                engagement: metricsForm.engagement,
+                notes: metricsForm.notes,
+                recorded_at: new Date().toISOString(),
+                recorded_by: user?.full_name || "Unknown"
+              }
+            ]
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", selectedActionId);
+  
+      if (updateError) throw updateError;
+  
+      // Save to advocacy_impact for campaign-level tracking
+      const { error: impactError } = await supabase
+        .from("advocacy_impact")
+        .insert({
+          campaign_id: campaignId,
+          metric_type: `action_${selectedActionId}`,
+          value: metricsForm.reach + metricsForm.engagement,
+          target: 0,
+          notes: `Reach: ${metricsForm.reach}, Engagement: ${metricsForm.engagement}${metricsForm.notes ? ', ' + metricsForm.notes : ''}`,
+          recorded_at: new Date().toISOString(),
+        });
+  
+      if (impactError) {
+        console.error("Error saving to advocacy_impact:", impactError);
+        // Don't fail the whole operation if impact tracking fails
+      }
+  
+      // Update local state
+      setActions(prev => prev.map(action => {
+        if (action.id === selectedActionId) {
+          return {
+            ...action,
+            results: {
+              reach: newReach,
+              engagement: newEngagement,
+              last_updated: new Date().toISOString(),
+              notes: metricsForm.notes || currentResults.notes || "",
+            },
+            total_reach: newReach,
+            total_engagement: newEngagement,
+          };
+        }
+        return action;
+      }));
+  
+      setShowMetricsModal(false);
+      setMetricsForm({ reach: 0, engagement: 0, notes: "" });
+      setSelectedActionId(null);
+      
+      alert("Metrics recorded successfully!");
+    } catch (error) {
+      console.error("Error saving metrics:", error);
+      alert("Failed to save metrics. Please try again.");
+    } finally {
+      setSubmittingMetrics(false);
+    }
+  };
+
+  // Add function to fetch action metrics
+  const fetchActionMetrics = async (actionId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("advocacy_action_metrics")
+        .select("*")
+        .eq("action_id", actionId)
+        .order("recorded_at", { ascending: false });
+
+      if (error) throw error;
+      
+      // Get recorder names
+      const metricsWithNames = await Promise.all(
+        (data || []).map(async (metric) => {
+          let recorderName = "Unknown";
+          if (metric.recorded_by) {
+            const { data: userData } = await supabase
+              .from("users")
+              .select("full_name")
+              .eq("id", metric.recorded_by)
+              .maybeSingle();
+            if (userData) recorderName = userData.full_name || "Unknown";
+          }
+          return { ...metric, recorded_by_name: recorderName };
+        })
+      );
+      
+      setActionMetrics(prev => ({
+        ...prev,
+        [actionId]: metricsWithNames
+      }));
+      
+      return metricsWithNames;
+    } catch (error) {
+      console.error("Error fetching action metrics:", error);
+      return [];
+    }
+  };
 
   const fetchUsers = async () => {
     const { data } = await supabase
@@ -386,123 +562,252 @@ export default function CampaignDetailPage() {
     if (data) setUsers(data);
   };
 
-  const fetchOrganizations = async () => {
-    try {
-      console.log("🔍 Fetching organizations...");
-      const { data, error } = await supabase
+// Update the fetchOrganizations function in your page.tsx
+const fetchOrganizations = async () => {
+  try {
+    console.log("🔍 Fetching organizations...");
+    // Remove the status filter if the column doesn't exist
+    const { data, error } = await supabase
+      .from("organizations")
+      .select("id, name, country, type")
+      // Remove this line if status column doesn't exist
+      // .eq("status", "Approved")
+      .order("name", { ascending: true });
+    
+    if (error) {
+      console.error("❌ Organizations error:", error);
+      // Try without the status filter
+      const { data: retryData, error: retryError } = await supabase
         .from("organizations")
         .select("id, name, country, type")
-        .eq("status", "Approved")
         .order("name", { ascending: true });
       
-      if (error) {
-        console.error("❌ Organizations error:", error);
+      if (retryError) {
+        console.error("❌ Retry error:", retryError);
+        setError("Failed to load organizations");
         return;
       }
       
-      console.log("✅ Organizations found:", data?.length || 0);
-      if (data) {
-        setOrganizations(data);
-        
-        // After fetching organizations, update available orgs
-        if (coalitionMembers.length > 0) {
-          const memberOrgIds = coalitionMembers.map((c: any) => c.organization_id);
-          setAvailableOrgs(data.filter(org => !memberOrgIds.includes(org.id)));
-        } else {
-          setAvailableOrgs(data);
-        }
+      if (retryData) {
+        console.log("✅ Organizations found (without status filter):", retryData.length);
+        setOrganizations(retryData);
+        setAvailableOrgs(retryData);
       }
-    } catch (error) {
-      console.error("Error fetching organizations:", error);
-    }
-  };
-
-  const handleSupportCampaign = async () => {
-    if (!user) {
-      router.push("/login");
       return;
     }
-  
-    setSupporting(true);
-    try {
-      console.log("🔍 Supporting campaign:", campaignId);
-      console.log("🔍 User:", user.id);
+    
+    console.log("✅ Organizations found:", data?.length || 0);
+    if (data) {
+      setOrganizations(data);
       
-      // Check if user already supports this campaign
-      const { data: existingSupport, error: checkError } = await supabase
-        .from("advocacy_supporters")
-        .select("id")
-        .eq("campaign_id", campaignId)
-        .eq("user_id", user.id)
-        .maybeSingle();
-  
-      if (checkError) {
-        console.error("❌ Check error:", checkError);
+      // Update available orgs based on current coalition members
+      if (coalitionMembers.length > 0) {
+        const memberOrgIds = coalitionMembers.map((c: any) => c.organization_id);
+        setAvailableOrgs(data.filter(org => !memberOrgIds.includes(org.id)));
+      } else {
+        setAvailableOrgs(data);
       }
-  
-      if (existingSupport) {
-        alert("You already support this campaign!");
-        setSupporting(false);
-        return;
-      }
-  
-      // Insert support
-      const { data, error } = await supabase
-        .from("advocacy_supporters")
-        .insert({
-          campaign_id: campaignId,
-          user_id: user.id,
-          message: supportMessage || undefined,
-          joined_at: new Date().toISOString(),
-          status: "Active",
-        })
-        .select()
-        .single();
-  
-      if (error) {
-        console.error("❌ Insert error:", error);
-        alert(`Failed to support campaign: ${error.message}`);
-        setSupporting(false);
-        return;
-      }
-  
-      console.log("✅ Support added:", data);
-  
-      // Update local state
-      setIsSupported(true);
-      
-      // Add new supporter to the list
-      const newSupporter: Supporter = {
-        id: data[0]?.id || data.id,
-        user_id: user.id,
-        user_name: user.full_name || "Anonymous",
-        user_email: user.email || "",
-        message: supportMessage || "",
-        joined_at: new Date().toISOString(),
-      };
-      setSupporters(prev => [newSupporter, ...prev]);
-      
-      // Update campaign supporter count
-      setCampaign(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          supporter_count: (prev.supporter_count || 0) + 1,
-        };
-      });
-  
-      setShowSupportModal(false);
-      setSupportMessage("");
-      
-      alert("You are now supporting this campaign!");
-    } catch (error) {
-      console.error("❌ Error supporting campaign:", error);
-      alert("Failed to support campaign. Please try again.");
-    } finally {
-      setSupporting(false);
     }
-  };
+  } catch (error) {
+    console.error("Error fetching organizations:", error);
+  }
+};
 
+// Update the handleSupportCampaign function
+const handleSupportCampaign = async () => {
+  if (!user) {
+    router.push("/login");
+    return;
+  }
+
+  setSupporting(true);
+  try {
+    console.log("🔍 Supporting campaign:", campaignId);
+    console.log("🔍 User:", user.id);
+    
+    // Check if user already supports this campaign
+    const { data: existingSupport, error: checkError } = await supabase
+      .from("advocacy_supporters")
+      .select("id")
+      .eq("campaign_id", campaignId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error("❌ Check error:", checkError);
+    }
+
+    if (existingSupport) {
+      alert("You already support this campaign!");
+      setSupporting(false);
+      return;
+    }
+
+    // Insert support - use the user's ID from the users table
+    const { data, error } = await supabase
+      .from("advocacy_supporters")
+      .insert({
+        campaign_id: campaignId,
+        user_id: user.id, // This should be the UUID from the users table
+        message: supportMessage || null,
+        joined_at: new Date().toISOString(),
+        status: "Active",
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("❌ Insert error:", error);
+      alert(`Failed to support campaign: ${error.message}`);
+      setSupporting(false);
+      return;
+    }
+
+    console.log("✅ Support added:", data);
+
+    // Update local state
+    setIsSupported(true);
+    
+    // Get user details for the supporter list
+    const userDetails = {
+      full_name: user.full_name || "Anonymous",
+      email: user.email || "",
+    };
+    
+    // Add new supporter to the list
+    const newSupporter: Supporter = {
+      id: data.id,
+      user_id: user.id,
+      user_name: userDetails.full_name,
+      user_email: userDetails.email,
+      message: supportMessage || "",
+      joined_at: new Date().toISOString(),
+    };
+    setSupporters(prev => [newSupporter, ...prev]);
+    
+    // Update campaign supporter count
+    setCampaign(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        supporter_count: (prev.supporter_count || 0) + 1,
+      };
+    });
+
+    setShowSupportModal(false);
+    setSupportMessage("");
+    
+    alert("You are now supporting this campaign!");
+  } catch (error) {
+    console.error("❌ Error supporting campaign:", error);
+    alert("Failed to support campaign. Please try again.");
+  } finally {
+    setSupporting(false);
+  }
+};
+
+// Update the handleEditAction function
+const handleSaveEditAction = async () => {
+  if (!editingAction || !editActionForm.title || !editActionForm.type) {
+    alert("Please fill in the required fields");
+    return;
+  }
+
+  setSubmittingEditAction(true);
+  try {
+    const { error } = await supabase
+      .from("advocacy_actions")
+      .update({
+        title: editActionForm.title,
+        description: editActionForm.description || null,
+        type: editActionForm.type,
+        target_audience: editActionForm.target_audience || null,
+        due_date: editActionForm.due_date || null,
+        assigned_to: editActionForm.assigned_to || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", editingAction.id);
+
+    if (error) {
+      console.error("❌ Update error:", error);
+      throw error;
+    }
+
+    // Update local state
+    setActions(prev => prev.map(action => 
+      action.id === editingAction.id ? {
+        ...action,
+        title: editActionForm.title,
+        description: editActionForm.description,
+        type: editActionForm.type,
+        target_audience: editActionForm.target_audience,
+        due_date: editActionForm.due_date,
+        assigned_to: editActionForm.assigned_to,
+        assigned_to_name: users.find(u => u.id === editActionForm.assigned_to)?.full_name || "Unassigned",
+      } : action
+    ));
+
+    setShowEditActionModal(false);
+    setEditingAction(null);
+    setEditActionForm({
+      title: "",
+      description: "",
+      type: "",
+      target_audience: "",
+      due_date: "",
+      assigned_to: "",
+    });
+    
+    alert("Action updated successfully!");
+  } catch (error) {
+    console.error("❌ Error updating action:", error);
+    alert("Failed to update action. Please try again.");
+  } finally {
+    setSubmittingEditAction(false);
+  }
+};
+
+// Update the fetchCampaignData function to properly load metrics
+// Add this inside fetchCampaignData after setting actions
+const loadActionMetrics = async () => {
+  const { data: actionsData, error: actionsError } = await supabase
+    .from("advocacy_actions")
+    .select("*")
+    .eq("campaign_id", campaignId)
+    .order("due_date", { ascending: true });
+
+  if (!actionsError && actionsData) {
+    const actionsWithMetrics = await Promise.all(
+      actionsData.map(async (action) => {
+        // Get assignee name
+        let assignedToName = "Unassigned";
+        if (action.assigned_to) {
+          const { data: userData } = await supabase
+            .from("users")
+            .select("full_name")
+            .eq("id", action.assigned_to)
+            .maybeSingle();
+          if (userData) assignedToName = userData.full_name || "Unassigned";
+        }
+
+        // Get metrics from results field
+        const results = action.results || {};
+        const totalReach = results.reach || 0;
+        const totalEngagement = results.engagement || 0;
+
+        return {
+          ...action,
+          assigned_to_name: assignedToName,
+          total_reach: totalReach,
+          total_engagement: totalEngagement,
+        };
+      })
+    );
+    setActions(actionsWithMetrics);
+  }
+};
+
+  
   const handleCopyLink = () => {
     const url = window.location.href;
     navigator.clipboard.writeText(url);
@@ -530,6 +835,7 @@ export default function CampaignDetailPage() {
           assigned_to: actionForm.assigned_to || null,
           status: "Planned",
           progress: 0,
+          results: { reach: 0, engagement: 0 },
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -541,6 +847,8 @@ export default function CampaignDetailPage() {
       setActions(prev => [{
         ...data,
         assigned_to_name: users.find(u => u.id === data.assigned_to)?.full_name || "Unassigned",
+        total_reach: 0,
+        total_engagement: 0,
       }, ...prev]);
   
       setShowActionModal(false);
@@ -562,7 +870,19 @@ export default function CampaignDetailPage() {
     }
   };
   
-
+  const handleEditAction = (action: Action) => {
+    setEditingAction(action);
+    setEditActionForm({
+      title: action.title,
+      description: action.description || "",
+      type: action.type,
+      target_audience: action.target_audience || "",
+      due_date: action.due_date || "",
+      assigned_to: action.assigned_to || "",
+    });
+    setShowEditActionModal(true);
+  };
+  
   // ==================== INVITE ORGANIZATION FUNCTIONALITY ====================
   const handleInviteOrganization = async () => {
   if (!selectedOrg) {
@@ -646,6 +966,7 @@ export default function CampaignDetailPage() {
     setSubmittingInvite(false);
   }
 };
+
 
   // ==================== UPDATE ACTION PROGRESS ====================
   const updateActionProgress = async (actionId: string, progress: number) => {
@@ -967,22 +1288,32 @@ export default function CampaignDetailPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
-                <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-cyan-400" />
-                  Impact Metrics
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-slate-400 text-sm">Reach</p>
-                    <p className="text-2xl font-bold text-white">{campaign.reach?.toLocaleString() || 0}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-400 text-sm">Engagement</p>
-                    <p className="text-2xl font-bold text-white">{campaign.engagement?.toLocaleString() || 0}</p>
-                  </div>
+            <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
+              <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-cyan-400" />
+                Impact Metrics
+              </h3>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-slate-400 text-sm">Total Reach (All Actions)</p>
+                  <p className="text-2xl font-bold text-white">
+                    {actions.reduce((sum, action) => sum + (action.total_reach || 0), 0).toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-slate-400 text-sm">Total Engagement (All Actions)</p>
+                  <p className="text-2xl font-bold text-white">
+                    {actions.reduce((sum, action) => sum + (action.total_engagement || 0), 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="pt-3 border-t border-slate-700/50">
+                  <p className="text-slate-400 text-sm">Actions with Metrics</p>
+                  <p className="text-lg font-semibold text-white">
+                    {actions.filter(a => (a.total_reach || 0) > 0 || (a.total_engagement || 0) > 0).length} / {actions.length}
+                  </p>
                 </div>
               </div>
+            </div>
 
               <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
                 <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
@@ -1026,9 +1357,10 @@ export default function CampaignDetailPage() {
             ) : (
               <div className="space-y-4">
                 {actions.map((action) => {
-                const isCreator = action.assigned_to === user?.id;
+                const isAssignedToUser = action.assigned_to === user?.id;
                 const isAdmin = user?.role === "Admin";
-                const canUpdateProgress = isCreator || isAdmin;
+                const canManageAction = isAssignedToUser || isAdmin;
+                const canAddMetrics = isAssignedToUser || isAdmin;
                 
                 return (
                   <div key={action.id} className="bg-slate-700/30 rounded-xl p-4">
@@ -1036,7 +1368,13 @@ export default function CampaignDetailPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           {getActionTypeIcon(action.type)}
-                          <h4 className="text-white font-medium">{action.title}</h4>
+                          <h4 
+                            className="text-white font-medium cursor-pointer hover:text-cyan-400 transition-colors"
+                            onClick={() => canManageAction && handleEditAction(action)}
+                            title={!canManageAction ? "Only the assignee or Admin can edit" : "Click to edit"}
+                          >
+                            {action.title}
+                          </h4>
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
                             action.status === "Completed" ? "bg-emerald-500/20 text-emerald-400" :
                             action.status === "In Progress" ? "bg-blue-500/20 text-blue-400" :
@@ -1053,22 +1391,69 @@ export default function CampaignDetailPage() {
                               Assigned: {action.assigned_to_name}
                             </span>
                           )}
-                          {action.assigned_to_name && (
-                            <span className="flex items-center gap-1">
-                              <User className="w-3 h-3" />
-                              Created by: {action.assigned_to_name}
-                            </span>
-                          )}
                           {action.due_date && (
                             <span className="flex items-center gap-1">
                               <Calendar className="w-3 h-3" />
                               Due: {new Date(action.due_date).toLocaleDateString()}
                             </span>
                           )}
+                          {action.target_audience && (
+                            <span className="flex items-center gap-1">
+                              <Target className="w-3 h-3" />
+                              Audience: {action.target_audience}
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* Metrics Display */}
+                        <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-slate-700/50">
+                          <div className="flex items-center gap-2">
+                            <TrendingUp className="w-4 h-4 text-cyan-400" />
+                            <span className="text-xs text-slate-400">Reach:</span>
+                            <span className="text-white font-semibold">{action.total_reach || 0}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <UsersIcon className="w-4 h-4 text-purple-400" />
+                            <span className="text-xs text-slate-400">Engagement:</span>
+                            <span className="text-white font-semibold">{action.total_engagement || 0}</span>
+                          </div>
+                          {action.results?.history && action.results.history.length > 0 && (
+                            <span className="text-xs text-slate-500">
+                              {action.results.history.length} update{action.results.history.length > 1 ? 's' : ''}
+                            </span>
+                          )}
                         </div>
                       </div>
+                      
                       <div className="flex flex-col items-end gap-2">
-                        {canUpdateProgress && (
+                        {/* Edit Button - Only for assignee or Admin */}
+                        {canManageAction && (
+                          <button
+                            onClick={() => handleEditAction(action)}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-xs transition-colors flex items-center gap-1"
+                          >
+                            <Edit className="w-3 h-3" />
+                            Edit
+                          </button>
+                        )}
+                        
+                        {/* Add Metrics Button - Only for assignee or Admin */}
+                        {canAddMetrics && (
+                          <button
+                            onClick={() => {
+                              setSelectedActionId(action.id);
+                              setMetricsForm({ reach: 0, engagement: 0, notes: "" });
+                              setShowMetricsModal(true);
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-white text-xs transition-colors flex items-center gap-1"
+                          >
+                            <TrendingUp className="w-3 h-3" />
+                            Add Metrics
+                          </button>
+                        )}
+                        
+                        {/* Delete Button - Only for assignee or Admin */}
+                        {canManageAction && (
                           <button
                             onClick={() => deleteAction(action.id)}
                             className="p-1 text-red-400 hover:text-red-300 transition-colors"
@@ -1077,6 +1462,7 @@ export default function CampaignDetailPage() {
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
+                        
                         <div className="flex items-center gap-1">
                           <span className="text-xs text-slate-400">Progress</span>
                           <span className="text-cyan-400 text-sm font-bold">{action.progress || 0}%</span>
@@ -1087,7 +1473,9 @@ export default function CampaignDetailPage() {
                             style={{ width: `${action.progress || 0}%` }}
                           />
                         </div>
-                        {canUpdateProgress && (
+                        
+                        {/* Progress Update - Only for assignee or Admin */}
+                        {canManageAction && (
                           <input
                             type="range"
                             min="0"
@@ -1098,17 +1486,44 @@ export default function CampaignDetailPage() {
                             className="w-32 accent-cyan-500"
                           />
                         )}
-                        {!canUpdateProgress && (
+                        {!canManageAction && (
                           <span className="text-xs text-slate-500 mt-1">
-                            Only the action creator or Admin can update progress
+                            Only the action assignee or Admin can manage this action
                           </span>
                         )}
                       </div>
                     </div>
+                    
+                    {/* Show metrics history if available */}
+                    {action.results?.history && action.results.history.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-slate-700/50">
+                        <details className="text-xs">
+                          <summary className="text-slate-400 hover:text-white cursor-pointer">
+                            View Metrics History ({action.results.history.length})
+                          </summary>
+                          <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                            {action.results.history.map((metric: any, index: number) => (
+                              <div key={index} className="flex justify-between items-center py-1 border-b border-slate-700/30">
+                                <div className="flex gap-3">
+                                  <span className="text-cyan-400">Reach: {metric.reach}</span>
+                                  <span className="text-purple-400">Engagement: {metric.engagement}</span>
+                                </div>
+                                <div className="text-slate-500">
+                                  <span>{metric.recorded_by || "Unknown"}</span>
+                                  <span className="ml-2">
+                                    {new Date(metric.recorded_at).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
+                    )}
                   </div>
                 );
               })}
-              </div>
+          </div>
             )}
           </div>
         )}
@@ -1357,6 +1772,103 @@ export default function CampaignDetailPage() {
         </div>
       )}
 
+      {/* Edit Action Modal */}
+      {showEditActionModal && editingAction && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={() => setShowEditActionModal(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700 sticky top-0 bg-slate-800">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <Edit className="w-6 h-6 text-cyan-400" />
+                  Edit Action
+                </h2>
+                <button onClick={() => setShowEditActionModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              </div>
+            </div>
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Action Title *</label>
+                <input
+                  type="text"
+                  value={editActionForm.title}
+                  onChange={(e) => setEditActionForm({ ...editActionForm, title: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  placeholder="e.g., Submit Petition to Parliament"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Description</label>
+                <textarea
+                  value={editActionForm.description}
+                  onChange={(e) => setEditActionForm({ ...editActionForm, description: e.target.value })}
+                  rows={3}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none"
+                  placeholder="Describe what needs to be done..."
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Action Type *</label>
+                  <select
+                    value={editActionForm.type}
+                    onChange={(e) => setEditActionForm({ ...editActionForm, type: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  >
+                    <option value="">Select Type</option>
+                    {actionTypes.map(type => (
+                      <option key={type.value} value={type.value}>{type.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Target Audience</label>
+                  <input
+                    type="text"
+                    value={editActionForm.target_audience}
+                    onChange={(e) => setEditActionForm({ ...editActionForm, target_audience: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                    placeholder="e.g., Parliament, Ministry of Health"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Due Date</label>
+                  <input
+                    type="date"
+                    value={editActionForm.due_date}
+                    onChange={(e) => setEditActionForm({ ...editActionForm, due_date: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Assign To</label>
+                  <select
+                    value={editActionForm.assigned_to}
+                    onChange={(e) => setEditActionForm({ ...editActionForm, assigned_to: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white"
+                  >
+                    <option value="">Unassigned</option>
+                    {users.map(user => (
+                      <option key={user.id} value={user.id}>{user.full_name} ({user.role})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <button
+                onClick={handleSaveEditAction}
+                disabled={submittingEditAction}
+                className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 rounded-xl text-white font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {submittingEditAction ? <Loader2 className="w-4 h-4 animate-spin" /> : <Edit className="w-4 h-4" />}
+                {submittingEditAction ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Invite Organization Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={() => setShowInviteModal(false)}>
@@ -1464,6 +1976,79 @@ export default function CampaignDetailPage() {
               >
                 {submittingInvite ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 {submittingInvite ? "Inviting..." : "Send Invitation"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Add Metrics Modal */}
+      {showMetricsModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowMetricsModal(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <TrendingUp className="w-6 h-6 text-cyan-400" />
+                  Add Impact Metrics
+                </h2>
+                <button onClick={() => setShowMetricsModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-slate-400 text-sm">
+                Record the impact of this action. These metrics help track the overall campaign success.
+              </p>
+              
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Reach</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">👥</span>
+                  <input
+                    type="number"
+                    value={metricsForm.reach}
+                    onChange={(e) => setMetricsForm({ ...metricsForm, reach: parseInt(e.target.value) || 0 })}
+                    min="0"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white"
+                    placeholder="Number of people reached"
+                  />
+                </div>
+                <p className="text-slate-500 text-xs mt-1">Total number of people who saw or heard about this action</p>
+              </div>
+
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Engagement</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">💬</span>
+                  <input
+                    type="number"
+                    value={metricsForm.engagement}
+                    onChange={(e) => setMetricsForm({ ...metricsForm, engagement: parseInt(e.target.value) || 0 })}
+                    min="0"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white"
+                    placeholder="Number of engagements"
+                  />
+                </div>
+                <p className="text-slate-500 text-xs mt-1">Number of people who actively engaged (e.g., signed, attended, shared)</p>
+              </div>
+
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Notes (Optional)</label>
+                <textarea
+                  value={metricsForm.notes}
+                  onChange={(e) => setMetricsForm({ ...metricsForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none"
+                  placeholder="Add any notes about this metric..."
+                />
+              </div>
+
+              <button
+                onClick={handleSaveMetrics}
+                disabled={submittingMetrics || (metricsForm.reach === 0 && metricsForm.engagement === 0)}
+                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 rounded-xl text-white font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {submittingMetrics ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
+                {submittingMetrics ? "Recording..." : "Record Metrics"}
               </button>
             </div>
           </div>

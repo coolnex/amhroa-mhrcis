@@ -6,6 +6,7 @@ import {
   Globe,
   TrendingUp,
   Target,
+  ArrowLeft,
   Award,
   Search,
   BarChart3,
@@ -251,6 +252,10 @@ export default function SDGIntelligencePage() {
       {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-8 md:py-10">
+        <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 mb-4 transition-colors">
+            <ArrowLeft className="w-4 h-4" />
+            Back to Dashboard
+          </Link>
           <div className="flex items-center gap-3 mb-4">
             <div className="px-3 py-1 bg-cyan-500/20 rounded-full border border-cyan-500/30">
               <span className="text-cyan-300 text-xs font-mono tracking-wider">

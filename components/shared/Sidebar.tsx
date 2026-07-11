@@ -32,6 +32,7 @@ import {
   ClipboardList,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
   Users,
   Building2,
   BookOpen,
@@ -284,7 +285,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
-
+  const [isRefreshing, setIsRefreshing] = useState(false);
   useEffect(() => {
     checkUserSession();
   }, [pathname]);
@@ -310,25 +311,85 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
     }
   }, [isAuthenticated, userData]);
 
-  // In Sidebar.tsx - Update the fetchNotifications function
-
+  useEffect(() => {
+    if (!isAuthenticated || !userData) return;
+  
+    // Subscribe to events table changes
+    const eventsChannel = supabase
+      .channel('events-notifications')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'events',
+        },
+        (payload) => {
+          // Check if the event was approved
+          if (payload.new?.approval_status === 'Approved' && 
+              payload.old?.approval_status === 'Pending') {
+            console.log('✅ Event approved, refreshing notifications...');
+            fetchNotifications();
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'events',
+          filter: `approval_status=eq.Approved`,
+        },
+        () => {
+          console.log('🆕 New approved event, refreshing notifications...');
+          fetchNotifications();
+        }
+      )
+      .subscribe();
+  
+    // Subscribe to alerts table changes
+    const alertsChannel = supabase
+      .channel('alerts-notifications')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'alerts',
+        },
+        () => {
+          console.log('🔔 Alert changed, refreshing notifications...');
+          fetchNotifications();
+        }
+      )
+      .subscribe();
+  
+    return () => {
+      supabase.removeChannel(eventsChannel);
+      supabase.removeChannel(alertsChannel);
+    };
+  }, [isAuthenticated, userData]);
+  
+  // Update the fetchNotifications function to handle loading state
   const fetchNotifications = async () => {
     if (!userData) return;
     
+    setIsRefreshing(true);
     setNotificationsLoading(true);
     try {
       const items: NotificationItem[] = [];
       
-      // Fetch upcoming events
+      // Fetch upcoming approved events
       const { data: events, error: eventsError } = await supabase
         .from("events")
         .select("*")
         .eq("status", "Upcoming")
-        .eq("approval_status", "Approved") // Only show approved events
+        .eq("approval_status", "Approved")
         .gte("start_date", new Date().toISOString())
         .order("start_date", { ascending: true })
         .limit(5);
-
+  
       if (!eventsError && events) {
         events.forEach((event: Event) => {
           const eventDate = new Date(event.start_date);
@@ -339,7 +400,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           if (daysUntil <= 3) severity = 'urgent';
           else if (daysUntil <= 7) severity = 'high';
           else if (daysUntil <= 14) severity = 'medium';
-
+  
           items.push({
             id: `event-${event.id}`,
             type: 'event',
@@ -347,22 +408,78 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             message: `${event.event_type} • ${daysUntil <= 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil} days`} • ${event.location || event.venue || 'Virtual'}`,
             date: new Date(event.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
             severity,
-            link: `/events?id=${event.id}`, // Changed to use query parameter
+            link: `/events?id=${event.id}`,
             isRead: false,
             icon: event.is_virtual ? <Video className="w-4 h-4" /> : <MapPin className="w-4 h-4" />,
             color: event.is_virtual ? 'bg-purple-500/20 text-purple-400' : 'bg-cyan-500/20 text-cyan-400',
           });
         });
       }
-
-      // ... rest of the function remains the same
+  
+      // Fetch active alerts
+      const { data: alerts, error: alertsError } = await supabase
+        .from("alerts")
+        .select("*")
+        .eq("status", "active")
+        .or(`audience.eq.all,audience.eq.${userData.role}`)
+        .gte("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: false })
+        .limit(5);
+  
+      if (!alertsError && alerts) {
+        alerts.forEach((alert: Alert) => {
+          const severityMap: Record<string, 'low' | 'medium' | 'high' | 'urgent'> = {
+            'low': 'low',
+            'medium': 'medium',
+            'high': 'high',
+            'urgent': 'urgent',
+          };
+          const severity = severityMap[alert.severity?.toLowerCase() || 'low'] || 'low';
+          
+          const severityColors: Record<string, string> = {
+            low: 'bg-blue-500/20 text-blue-400',
+            medium: 'bg-yellow-500/20 text-yellow-400',
+            high: 'bg-orange-500/20 text-orange-400',
+            urgent: 'bg-red-500/20 text-red-400',
+          };
+          
+          const severityIcons: Record<string, React.ReactNode> = {
+            low: <Info className="w-4 h-4" />,
+            medium: <AlertCircle className="w-4 h-4" />,
+            high: <AlertTriangle className="w-4 h-4" />,
+            urgent: <Zap className="w-4 h-4" />,
+          };
+  
+          items.push({
+            id: `alert-${alert.id}`,
+            type: 'alert',
+            title: alert.title || 'Alert',
+            message: alert.message || '',
+            date: new Date(alert.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            severity,
+            link: `/alerts/${alert.id}`,
+            isRead: false,
+            icon: severityIcons[severity] || <BellRing className="w-4 h-4" />,
+            color: severityColors[severity] || 'bg-slate-500/20 text-slate-400',
+          });
+        });
+      }
+  
+      // Sort by date (most recent first) and limit to 10
+      items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setNotifications(items.slice(0, 10));
+      setUnreadCount(items.length);
+      
     } catch (error) {
       console.error("Error fetching notifications:", error);
     } finally {
       setNotificationsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
+
+  
   const checkUserSession = async () => {
     setLoading(true);
     try {
@@ -653,6 +770,17 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                       <h3 className="text-white font-semibold">Notifications</h3>
                       <p className="text-slate-400 text-xs">{unreadCount} unread</p>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          fetchNotifications();
+                          // Add a subtle animation or feedback
+                        }}
+                        className="p-1.5 hover:bg-slate-700 rounded-lg transition-colors"
+                        title="Refresh notifications"
+                      >
+                        <RefreshCw className={`w-4 h-4 text-slate-400 ${notificationsLoading ? 'animate-spin' : ''}`} />
+                      </button>
                     {unreadCount > 0 && (
                       <button
                         onClick={markAllAsRead}
@@ -661,6 +789,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                         Mark all as read
                       </button>
                     )}
+                  </div>
                   </div>
 
                   <div className="overflow-y-auto max-h-[400px] custom-scrollbar">
