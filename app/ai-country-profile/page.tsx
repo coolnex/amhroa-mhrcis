@@ -33,6 +33,9 @@ import {
   MessageSquare,
   Star,
   ChevronRight,
+  DollarSign,
+  Gauge,
+  BookOpen,
 } from "lucide-react";
 
 interface CountryProfile {
@@ -71,6 +74,15 @@ interface CountryProfile {
       event: string;
       status: "completed" | "in-progress" | "planned";
     }[];
+    // Additional fields from mental_health_reforms
+    reformTier?: string;
+    fundingGapLevel?: string;
+    investmentPriority?: string;
+    estimatedInvestmentNeed?: number;
+    donorReadinessScore?: number;
+    agenda2063Score?: number;
+    strategy?: string;
+    priorityLevel?: string;
   };
   aiConfidence: number;
   generatedAt: string;
@@ -85,125 +97,6 @@ export default function AICountryProfilePage() {
   const [activeTab, setActiveTab] = useState<"overview" | "metrics" | "timeline" | "recommendations">("overview");
   const [savedProfiles, setSavedProfiles] = useState<any[]>([]);
 
-  // Mock data for demonstration when API is not available
-  const mockProfiles: Record<string, CountryProfile> = {
-    "1": {
-      country: {
-        id: 1,
-        country_name: "Kenya",
-        region: "East Africa",
-        reform_score: 74,
-        population: 53.8,
-        capital: "Nairobi",
-        last_updated: "2024-03-15",
-      },
-      intelligence: {
-        reformLevel: "Moderate Reform",
-        riskLevel: "Medium Risk",
-        priority: "⚡",
-        implementationStatus: "Partial Implementation",
-        lawStatus: "Modern Law (2019)",
-        summary: "Kenya has made significant progress in mental health reform with the passage of the Mental Health Act 2019 and subsequent devolution of services to county level. However, implementation remains uneven across 47 counties, with urban centers showing better service delivery than rural areas. The country has established a Mental Health Taskforce and is working on integrating mental health into primary healthcare. Key challenges include inadequate funding, workforce shortages, and persistent stigma in rural communities.",
-        strengths: [
-          "Modern legal framework aligned with WHO standards",
-          "Devolution has enabled county-level innovation",
-          "Strong civil society engagement and advocacy",
-          "Mental health integrated into Universal Health Coverage",
-        ],
-        challenges: [
-          "Uneven implementation across counties",
-          "Severe shortage of psychiatrists (0.5 per 100k)",
-          "Limited community-based services",
-          "Stigma remains high in rural areas",
-        ],
-        recommendations: [
-          "Accelerate county-level implementation through dedicated technical assistance",
-          "Expand community health worker training on mental health",
-          "Increase mental health budget allocation to 5% of health budget",
-          "Launch national anti-stigma campaign targeting rural populations",
-          "Establish telepsychiatry network to reach underserved areas",
-        ],
-        sdgProgress: {
-          sdg3_4: 68,
-          sdg10_2: 55,
-          sdg16_3: 72,
-        },
-        metrics: {
-          psychiatristsPer100k: 0.5,
-          bedsPer100k: 10.5,
-          budgetAllocation: 1.2,
-          ngoPresence: 45,
-        },
-        timeline: [
-          { year: 2019, event: "Mental Health Act Passed", status: "completed" },
-          { year: 2020, event: "Mental Health Task Force Established", status: "completed" },
-          { year: 2022, event: "County-Level Implementation Begins", status: "in-progress" },
-          { year: 2024, event: "Community Health Worker Training", status: "in-progress" },
-          { year: 2026, event: "Full Implementation Target", status: "planned" },
-        ],
-      },
-      aiConfidence: 94,
-      generatedAt: new Date().toISOString(),
-    },
-    "2": {
-      country: {
-        id: 2,
-        country_name: "Nigeria",
-        region: "West Africa",
-        reform_score: 62,
-        population: 218.6,
-        capital: "Abuja",
-        last_updated: "2024-03-15",
-      },
-      intelligence: {
-        reformLevel: "Limited Reform",
-        riskLevel: "High Risk",
-        priority: "🔥",
-        implementationStatus: "Minimal Implementation",
-        lawStatus: "Modern Law (2013 - National Mental Health Act)",
-        summary: "Nigeria passed the National Mental Health Act in 2013, replacing the outdated Lunacy Act. However, implementation has been slow due to federal-state coordination challenges, inadequate funding, and competing health priorities. Only a few states have domesticated the act, and mental health services remain concentrated in federal neuropsychiatric hospitals. The country faces a massive treatment gap with only 10% of those in need receiving care.",
-        strengths: [
-          "National Mental Health Act exists (2013)",
-          "Federal neuropsychiatric hospitals provide specialized care",
-          "Growing youth mental health advocacy movement",
-        ],
-        challenges: [
-          "Poor domestication at state level",
-          "Mental health budget <1% of health budget",
-          "Severe workforce shortage (0.4 psychiatrists per 100k)",
-          "Weak primary healthcare integration",
-        ],
-        recommendations: [
-          "Accelerate state-level domestication of the Mental Health Act",
-          "Establish Mental Health Department at federal and state levels",
-          "Train 10,000 primary healthcare workers in mental health",
-          "Launch pilot community mental health programs in 6 geo-political zones",
-          "Create national mental health funding mechanism",
-        ],
-        sdgProgress: {
-          sdg3_4: 45,
-          sdg10_2: 35,
-          sdg16_3: 50,
-        },
-        metrics: {
-          psychiatristsPer100k: 0.4,
-          bedsPer100k: 8.0,
-          budgetAllocation: 0.8,
-          ngoPresence: 65,
-        },
-        timeline: [
-          { year: 2013, event: "National Mental Health Act Passed", status: "completed" },
-          { year: 2015, event: "National Mental Health Policy", status: "completed" },
-          { year: 2018, event: "State-Level Domestication Campaign", status: "in-progress" },
-          { year: 2023, event: "Primary Healthcare Integration", status: "in-progress" },
-          { year: 2025, event: "Community Mental Health Rollout", status: "planned" },
-        ],
-      },
-      aiConfidence: 96,
-      generatedAt: new Date().toISOString(),
-    },
-  };
-
   const fetchProfile = async () => {
     if (!countryId && !countryName) {
       setError("Please enter a Country ID or Name");
@@ -215,33 +108,28 @@ export default function AICountryProfilePage() {
     setProfile(null);
 
     try {
-      // Try API first
+      const queryParams = new URLSearchParams();
+      if (countryId) {
+        queryParams.append("countryId", countryId);
+      }
+      if (countryName) {
+        queryParams.append("countryName", countryName);
+      }
+
       const response = await fetch(
-        `/api/ai-country-profile?${countryId ? `countryId=${countryId}` : `countryName=${encodeURIComponent(countryName)}`}`
+        `/api/ai-country-profile?${queryParams.toString()}`
       );
 
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.profile) {
           setProfile(data.profile);
-          return;
-        }
-      }
-
-      // Fallback to mock data
-      if (countryId && mockProfiles[countryId]) {
-        setProfile(mockProfiles[countryId]);
-      } else if (countryName) {
-        const foundProfile = Object.values(mockProfiles).find(
-          (p) => p.country.country_name.toLowerCase() === countryName.toLowerCase()
-        );
-        if (foundProfile) {
-          setProfile(foundProfile);
         } else {
-          setError("Country not found. Please try a different ID or name.");
+          setError(data.message || "Country not found");
         }
       } else {
-        setError("Country not found. Please try a different ID or name.");
+        const errorData = await response.json();
+        setError(errorData.message || "Failed to load profile");
       }
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -289,33 +177,46 @@ export default function AICountryProfilePage() {
     return "bg-red-500/20 border-red-500/30";
   };
 
+  const getStatusBadge = (status: string) => {
+    const statusMap: Record<string, { color: string; label: string }> = {
+      'completed': { color: 'bg-emerald-500/20 text-emerald-400', label: '✓ Completed' },
+      'in-progress': { color: 'bg-yellow-500/20 text-yellow-400', label: '● In Progress' },
+      'planned': { color: 'bg-slate-600/20 text-slate-400', label: '○ Planned' },
+    };
+    return statusMap[status] || statusMap['planned'];
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
       {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-8 md:py-10">
-        <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 mb-4 transition-colors">
+          <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 mb-4 transition-colors">
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
           </Link>
           <div className="flex justify-between items-start flex-wrap gap-4">
             <div>
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <div className="px-3 py-1 bg-cyan-500/20 rounded-full border border-cyan-500/30">
                   <span className="text-cyan-300 text-xs font-mono tracking-wider">
                     AI-POWERED INTELLIGENCE
                   </span>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Brain className="w-4 h-4 text-purple-400" />
-                  <span className="text-slate-400 text-xs">Generative AI Analysis</span>
+                <div className="flex items-center gap-1 px-3 py-1 bg-purple-500/20 rounded-full border border-purple-500/30">
+                  <Brain className="w-3 h-3 text-purple-400" />
+                  <span className="text-purple-300 text-xs font-mono">Generative AI Analysis</span>
+                </div>
+                <div className="flex items-center gap-1 px-3 py-1 bg-emerald-500/20 rounded-full border border-emerald-500/30">
+                  <Database className="w-3 h-3 text-emerald-400" />
+                  <span className="text-emerald-300 text-xs font-mono">Mental Health Reforms</span>
                 </div>
               </div>
               <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
                 AI Country Intelligence Profiles
               </h1>
               <p className="text-slate-300 text-base md:text-lg mt-3 max-w-2xl">
-                Automated continental reform intelligence and governance insights powered by advanced AI analysis.
+                Automated continental reform intelligence and governance insights powered by advanced AI analysis from the mental_health_reforms database.
               </p>
             </div>
 
@@ -402,17 +303,23 @@ export default function AICountryProfilePage() {
 
         {/* Profile Content */}
         {profile && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-in fade-in duration-500">
             {/* Hero Card */}
             <div className="bg-gradient-to-r from-slate-800 to-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden">
               <div className="p-6 md:p-8">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
-                    <div className="flex items-center gap-3 mb-3">
+                    <div className="flex items-center gap-3 mb-3 flex-wrap">
                       <MapPin className="w-5 h-5 text-cyan-400" />
-                      <span className="text-slate-400 text-sm">{profile.country.region}</span>
+                      <span className="text-slate-400 text-sm">Tier: {profile.intelligence.reformTier || profile.country.region}</span>
                       <span className="text-slate-600">•</span>
-                      <span className="text-slate-400 text-sm">Capital: {profile.country.capital}</span>
+                      <span className="text-slate-400 text-sm">Priority: {profile.intelligence.priorityLevel || 'Not specified'}</span>
+                      {profile.intelligence.fundingGapLevel && (
+                        <>
+                          <span className="text-slate-600">•</span>
+                          <span className="text-slate-400 text-sm">Funding Gap: {profile.intelligence.fundingGapLevel}</span>
+                        </>
+                      )}
                     </div>
                     <h2 className="text-4xl md:text-5xl font-bold text-white">
                       {profile.country.country_name}
@@ -429,12 +336,24 @@ export default function AICountryProfilePage() {
                         <Brain className="w-3 h-3" />
                         AI Confidence: {profile.aiConfidence}%
                       </span>
+                      {profile.intelligence.donorReadinessScore !== undefined && (
+                        <span className="flex items-center gap-1 px-3 py-1 bg-emerald-500/20 rounded-full text-sm text-emerald-400">
+                          <DollarSign className="w-3 h-3" />
+                          Donor Readiness: {profile.intelligence.donorReadinessScore}%
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="text-center md:text-right">
-                    <p className="text-slate-400 text-sm">Population</p>
-                    <p className="text-3xl font-bold text-white">{profile.country.population}M</p>
-                    <p className="text-slate-500 text-xs mt-1">Last updated: {new Date(profile.generatedAt).toLocaleDateString()}</p>
+                    {profile.intelligence.estimatedInvestmentNeed && (
+                      <>
+                        <p className="text-slate-400 text-sm">Investment Need</p>
+                        <p className="text-2xl font-bold text-emerald-400">
+                          ${(profile.intelligence.estimatedInvestmentNeed / 1000000).toFixed(1)}M
+                        </p>
+                      </>
+                    )}
+                    <p className="text-slate-500 text-xs mt-1">Generated: {new Date(profile.generatedAt).toLocaleDateString()}</p>
                   </div>
                 </div>
 
@@ -524,7 +443,17 @@ export default function AICountryProfilePage() {
                     <Brain className="w-5 h-5 text-purple-400" />
                     AI-Generated Reform Summary
                   </h3>
-                  <p className="text-slate-300 leading-relaxed">{profile.intelligence.summary}</p>
+                  <div className="text-slate-300 leading-relaxed whitespace-pre-line">
+                    {profile.intelligence.summary}
+                  </div>
+                  {profile.intelligence.strategy && (
+                    <div className="mt-4 p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg">
+                      <p className="text-cyan-400 text-sm flex items-center gap-2">
+                        <BookOpen className="w-4 h-4" />
+                        Reform Strategy: {profile.intelligence.strategy}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Strengths & Challenges Grid */}
@@ -566,10 +495,10 @@ export default function AICountryProfilePage() {
                     <Target className="w-5 h-5 text-cyan-400" />
                     SDG Alignment Progress
                   </h3>
-                  <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <div className="flex justify-between mb-1">
-                        <span className="text-slate-400 text-sm">SDG 3.4 (Mental Health)</span>
+                        <span className="text-slate-400 text-sm">SDG 3.4</span>
                         <span className="text-cyan-400 text-sm">{profile.intelligence.sdgProgress.sdg3_4}%</span>
                       </div>
                       <div className="w-full bg-slate-700 rounded-full h-2">
@@ -578,7 +507,7 @@ export default function AICountryProfilePage() {
                     </div>
                     <div>
                       <div className="flex justify-between mb-1">
-                        <span className="text-slate-400 text-sm">SDG 10.2 (Social Inclusion)</span>
+                        <span className="text-slate-400 text-sm">SDG 10.2</span>
                         <span className="text-cyan-400 text-sm">{profile.intelligence.sdgProgress.sdg10_2}%</span>
                       </div>
                       <div className="w-full bg-slate-700 rounded-full h-2">
@@ -587,7 +516,7 @@ export default function AICountryProfilePage() {
                     </div>
                     <div>
                       <div className="flex justify-between mb-1">
-                        <span className="text-slate-400 text-sm">SDG 16.3 (Rule of Law)</span>
+                        <span className="text-slate-400 text-sm">SDG 16.3</span>
                         <span className="text-cyan-400 text-sm">{profile.intelligence.sdgProgress.sdg16_3}%</span>
                       </div>
                       <div className="w-full bg-slate-700 rounded-full h-2">
@@ -595,6 +524,42 @@ export default function AICountryProfilePage() {
                       </div>
                     </div>
                   </div>
+                  {profile.intelligence.agenda2063Score !== undefined && (
+                    <div className="mt-4 pt-4 border-t border-slate-700">
+                      <div className="flex justify-between mb-1">
+                        <span className="text-slate-400 text-sm">Agenda 2063 Alignment</span>
+                        <span className="text-purple-400 text-sm">{profile.intelligence.agenda2063Score}%</span>
+                      </div>
+                      <div className="w-full bg-slate-700 rounded-full h-2">
+                        <div className="bg-purple-500 h-2 rounded-full" style={{ width: `${profile.intelligence.agenda2063Score}%` }}></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Status Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <p className="text-slate-400 text-xs">Law Status</p>
+                    <p className="text-white font-medium mt-1">{profile.intelligence.lawStatus}</p>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <p className="text-slate-400 text-xs">Implementation</p>
+                    <p className="text-white font-medium mt-1">{profile.intelligence.implementationStatus}</p>
+                  </div>
+                  {profile.intelligence.fundingGapLevel && (
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                      <p className="text-slate-400 text-xs">Funding Gap</p>
+                      <p className={`font-medium mt-1 ${
+                        profile.intelligence.fundingGapLevel === 'critical' ? 'text-red-400' :
+                        profile.intelligence.fundingGapLevel === 'high' ? 'text-orange-400' :
+                        profile.intelligence.fundingGapLevel === 'medium' ? 'text-yellow-400' :
+                        'text-emerald-400'
+                      }`}>
+                        {profile.intelligence.fundingGapLevel}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -604,29 +569,46 @@ export default function AICountryProfilePage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
                   <h3 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
-                    <Users className="w-5 h-5 text-cyan-400" />
-                    Workforce Metrics
+                    <Gauge className="w-5 h-5 text-cyan-400" />
+                    System Performance
                   </h3>
                   <div className="space-y-4">
                     <div className="flex justify-between items-center py-2 border-b border-slate-700">
-                      <span className="text-slate-400">Psychiatrists per 100k</span>
-                      <span className="text-white font-bold">{profile.intelligence.metrics.psychiatristsPer100k}</span>
+                      <span className="text-slate-400">Reform Score</span>
+                      <span className={`font-bold ${getScoreColor(profile.country.reform_score)}`}>
+                        {profile.country.reform_score}%
+                      </span>
                     </div>
                     <div className="flex justify-between items-center py-2 border-b border-slate-700">
-                      <span className="text-slate-400">Psychiatric Beds per 100k</span>
-                      <span className="text-white font-bold">{profile.intelligence.metrics.bedsPer100k}</span>
+                      <span className="text-slate-400">Implementation Status</span>
+                      <span className={`px-2 py-1 rounded-full text-xs ${
+                        profile.intelligence.implementationStatus === "Full Implementation" ? "bg-emerald-500/20 text-emerald-400" :
+                        profile.intelligence.implementationStatus === "Partial Implementation" ? "bg-yellow-500/20 text-yellow-400" :
+                        profile.intelligence.implementationStatus === "In Progress" ? "bg-yellow-500/20 text-yellow-400" :
+                        "bg-red-500/20 text-red-400"
+                      }`}>
+                        {profile.intelligence.implementationStatus}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center py-2 border-b border-slate-700">
-                      <span className="text-slate-400">NGO/CSO Presence</span>
-                      <span className="text-white font-bold">{profile.intelligence.metrics.ngoPresence} organizations</span>
+                      <span className="text-slate-400">Donor Readiness</span>
+                      <span className={`font-bold ${getScoreColor(profile.intelligence.donorReadinessScore || 0)}`}>
+                        {profile.intelligence.donorReadinessScore || 0}%
+                      </span>
                     </div>
+                    {profile.intelligence.investmentPriority && (
+                      <div className="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span className="text-slate-400">Investment Priority</span>
+                        <span className="text-cyan-400 font-medium">{profile.intelligence.investmentPriority}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
                   <h3 className="text-white font-semibold text-lg mb-4 flex items-center gap-2">
                     <Building2 className="w-5 h-5 text-cyan-400" />
-                    System Indicators
+                    Financial & Strategic Indicators
                   </h3>
                   <div className="space-y-4">
                     <div className="flex justify-between items-center py-2 border-b border-slate-700">
@@ -634,18 +616,23 @@ export default function AICountryProfilePage() {
                       <span className="text-white font-bold">{profile.intelligence.metrics.budgetAllocation}% of health budget</span>
                     </div>
                     <div className="flex justify-between items-center py-2 border-b border-slate-700">
-                      <span className="text-slate-400">Implementation Status</span>
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        profile.intelligence.implementationStatus === "Full Implementation" ? "bg-emerald-500/20 text-emerald-400" :
-                        profile.intelligence.implementationStatus === "Partial Implementation" ? "bg-yellow-500/20 text-yellow-400" :
-                        "bg-red-500/20 text-red-400"
-                      }`}>
-                        {profile.intelligence.implementationStatus}
-                      </span>
+                      <span className="text-slate-400">NGO/CSO Presence</span>
+                      <span className="text-white font-bold">{profile.intelligence.metrics.ngoPresence} organizations</span>
                     </div>
+                    {profile.intelligence.estimatedInvestmentNeed && (
+                      <div className="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span className="text-slate-400">Estimated Investment Need</span>
+                        <span className="text-emerald-400 font-bold">
+                          ${profile.intelligence.estimatedInvestmentNeed.toLocaleString()}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center py-2 border-b border-slate-700">
-                      <span className="text-slate-400">Law Status</span>
-                      <span className="text-white font-bold">{profile.intelligence.lawStatus}</span>
+                      <span className="text-slate-400">Strategic Priority</span>
+                      <span className="flex items-center gap-1">
+                        {getPriorityIcon(profile.intelligence.priority)}
+                        <span className="text-white font-medium">{getPriorityText(profile.intelligence.priority)}</span>
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -662,32 +649,29 @@ export default function AICountryProfilePage() {
                 <div className="relative">
                   <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-700"></div>
                   <div className="space-y-6">
-                    {profile.intelligence.timeline.map((item, idx) => (
-                      <div key={idx} className="relative pl-10">
-                        <div className={`absolute left-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                          item.status === "completed" ? "bg-emerald-500/20 border border-emerald-500" :
-                          item.status === "in-progress" ? "bg-yellow-500/20 border border-yellow-500" :
-                          "bg-slate-700 border border-slate-600"
-                        }`}>
-                          {item.status === "completed" && <CheckCircle className="w-4 h-4 text-emerald-400" />}
-                          {item.status === "in-progress" && <Clock className="w-4 h-4 text-yellow-400" />}
-                          {item.status === "planned" && <Target className="w-4 h-4 text-slate-400" />}
-                        </div>
-                        <div>
-                          <span className="text-cyan-400 font-mono text-sm">{item.year}</span>
-                          <p className="text-white font-medium mt-1">{item.event}</p>
-                          <span className={`text-xs mt-1 ${
-                            item.status === "completed" ? "text-emerald-400" :
-                            item.status === "in-progress" ? "text-yellow-400" :
-                            "text-slate-500"
+                    {profile.intelligence.timeline.map((item, idx) => {
+                      const statusBadge = getStatusBadge(item.status);
+                      return (
+                        <div key={idx} className="relative pl-10">
+                          <div className={`absolute left-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                            item.status === "completed" ? "bg-emerald-500/20 border border-emerald-500" :
+                            item.status === "in-progress" ? "bg-yellow-500/20 border border-yellow-500" :
+                            "bg-slate-700 border border-slate-600"
                           }`}>
-                            {item.status === "completed" ? "✓ Completed" :
-                             item.status === "in-progress" ? "● In Progress" :
-                             "○ Planned"}
-                          </span>
+                            {item.status === "completed" && <CheckCircle className="w-4 h-4 text-emerald-400" />}
+                            {item.status === "in-progress" && <Clock className="w-4 h-4 text-yellow-400" />}
+                            {item.status === "planned" && <Target className="w-4 h-4 text-slate-400" />}
+                          </div>
+                          <div>
+                            <span className="text-cyan-400 font-mono text-sm">{item.year}</span>
+                            <p className="text-white font-medium mt-1">{item.event}</p>
+                            <span className={`text-xs mt-1 ${statusBadge.color}`}>
+                              {statusBadge.label}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -701,19 +685,30 @@ export default function AICountryProfilePage() {
                   AI-Generated Strategic Recommendations
                 </h3>
                 <div className="space-y-4">
-                  {profile.intelligence.recommendations.map((rec, idx) => (
-                    <div key={idx} className="flex items-start gap-3 p-4 bg-slate-700/30 rounded-xl hover:bg-slate-700/50 transition-colors">
-                      <div className="w-6 h-6 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
-                        <span className="text-cyan-400 text-sm font-bold">{idx + 1}</span>
+                  {profile.intelligence.recommendations.map((rec, idx) => {
+                    const isCritical = rec.includes('⚠️') || rec.includes('CRITICAL') || rec.includes('🚀');
+                    const isFinancial = rec.includes('💰') || rec.includes('$');
+                    const isLegal = rec.includes('⚖️') || rec.includes('📋');
+                    
+                    let bgColor = "bg-slate-700/30";
+                    if (isCritical) bgColor = "bg-red-500/10 border-red-500/20";
+                    else if (isFinancial) bgColor = "bg-emerald-500/10 border-emerald-500/20";
+                    else if (isLegal) bgColor = "bg-purple-500/10 border-purple-500/20";
+                    
+                    return (
+                      <div key={idx} className={`flex items-start gap-3 p-4 ${bgColor} rounded-xl hover:bg-slate-700/50 transition-colors border border-transparent`}>
+                        <div className="w-6 h-6 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                          <span className="text-cyan-400 text-sm font-bold">{idx + 1}</span>
+                        </div>
+                        <p className="text-slate-300 flex-1">{rec}</p>
+                        <ChevronRight className="w-4 h-4 text-slate-500 flex-shrink-0" />
                       </div>
-                      <p className="text-slate-300 flex-1">{rec}</p>
-                      <ChevronRight className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Action Buttons */}
-                <div className="mt-6 pt-6 border-t border-slate-700 flex gap-3">
+                <div className="mt-6 pt-6 border-t border-slate-700 flex flex-col sm:flex-row gap-3">
                   <button className="flex-1 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white font-medium transition-colors flex items-center justify-center gap-2">
                     <Download className="w-4 h-4" />
                     Export Recommendations
@@ -728,11 +723,17 @@ export default function AICountryProfilePage() {
 
             {/* AI Attribution */}
             <div className="text-center py-4">
-              <p className="text-slate-500 text-xs flex items-center justify-center gap-2">
+              <p className="text-slate-500 text-xs flex items-center justify-center gap-2 flex-wrap">
                 <Brain className="w-3 h-3" />
-                AI-generated intelligence based on continental reform data and global best practices
+                AI-generated intelligence based on mental_health_reforms database and global best practices
                 <span className="text-slate-600">•</span>
                 Confidence score: {profile.aiConfidence}%
+                {profile.intelligence.reformTier && (
+                  <>
+                    <span className="text-slate-600">•</span>
+                    <span className="text-emerald-400">Tier: {profile.intelligence.reformTier}</span>
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -741,3 +742,6 @@ export default function AICountryProfilePage() {
     </div>
   );
 }
+
+// Add missing import
+import { Database } from "lucide-react";

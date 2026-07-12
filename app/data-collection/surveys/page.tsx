@@ -167,7 +167,7 @@ export default function SurveysDashboardPage() {
       const { data, error } = await supabase
         .from("surveys")
         .select("*")
-        .in("status", ["Active", "published"])
+        .in("status", ["published"])
         .order("created_at", { ascending: false });
 
       if (error) throw error;

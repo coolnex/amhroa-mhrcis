@@ -25,6 +25,9 @@ import {
   Users,
   Clock,
   Star,
+  Building2,
+  DollarSign,
+  Gauge,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -39,6 +42,17 @@ interface Country {
   reform_score: number;
   population: number;
   last_updated: string;
+  // Additional fields from mental_health_reforms
+  reform_tier?: string;
+  law_status?: string;
+  implementation_status?: string;
+  budget_level?: string;
+  priority_level?: string;
+  funding_gap_level?: string;
+  investment_priority?: string;
+  estimated_investment_need?: number;
+  donor_readiness_score?: number;
+  agenda2063_score?: number;
 }
 
 interface Metrics {
@@ -64,6 +78,8 @@ interface TopPerformer {
   sdg_3_4_score: number;
   sdg_10_2_score: number;
   sdg_16_3_score: number;
+  reform_tier?: string;
+  priority_level?: string;
 }
 
 export default function SDGIntelligencePage() {
@@ -74,6 +90,8 @@ export default function SDGIntelligencePage() {
   const [sortBy, setSortBy] = useState<keyof Country>("country_name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [filterRegion, setFilterRegion] = useState<string>("all");
+  const [filterTier, setFilterTier] = useState<string>("all");
+  const [filterPriority, setFilterPriority] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
   const [selectedCountry, setSelectedCountry] = useState<Country | null>(null);
@@ -128,6 +146,22 @@ export default function SDGIntelligencePage() {
     return ["all", ...Array.from(regionSet)];
   }, [countries]);
 
+  const getUniqueTiers = useMemo(() => {
+    const tierSet = new Set<string>();
+    countries.forEach(c => {
+      if (c.reform_tier) tierSet.add(c.reform_tier);
+    });
+    return ["all", ...Array.from(tierSet)];
+  }, [countries]);
+
+  const getUniquePriorities = useMemo(() => {
+    const prioritySet = new Set<string>();
+    countries.forEach(c => {
+      if (c.priority_level) prioritySet.add(c.priority_level);
+    });
+    return ["all", ...Array.from(prioritySet)];
+  }, [countries]);
+
   const filteredCountries = useMemo(() => {
     let filtered = [...countries];
 
@@ -136,13 +170,25 @@ export default function SDGIntelligencePage() {
       const term = search.toLowerCase();
       filtered = filtered.filter(c =>
         c.country_name.toLowerCase().includes(term) ||
-        c.region?.toLowerCase().includes(term)
+        c.region?.toLowerCase().includes(term) ||
+        c.reform_tier?.toLowerCase().includes(term) ||
+        c.law_status?.toLowerCase().includes(term)
       );
     }
 
-    // Region filter
+    // Region filter (reform tier)
     if (filterRegion !== "all") {
       filtered = filtered.filter(c => c.region === filterRegion);
+    }
+
+    // Tier filter
+    if (filterTier !== "all") {
+      filtered = filtered.filter(c => c.reform_tier === filterTier);
+    }
+
+    // Priority filter
+    if (filterPriority !== "all") {
+      filtered = filtered.filter(c => c.priority_level === filterPriority);
     }
 
     // Sort
@@ -162,7 +208,7 @@ export default function SDGIntelligencePage() {
     });
 
     return filtered;
-  }, [countries, search, sortBy, sortOrder, filterRegion]);
+  }, [countries, search, sortBy, sortOrder, filterRegion, filterTier, filterPriority]);
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-emerald-400";
@@ -214,16 +260,37 @@ export default function SDGIntelligencePage() {
 
   const exportData = () => {
     const csv = [
-      ["Country", "Region", "SDG Score", "SDG 3.4", "SDG 10.2", "SDG 16.3", "Reform Score", "Population"],
+      [
+        "Country",
+        "Reform Tier",
+        "SDG Score",
+        "SDG 3.4",
+        "SDG 10.2",
+        "SDG 16.3",
+        "Reform Score",
+        "Law Status",
+        "Implementation Status",
+        "Budget Level",
+        "Priority Level",
+        "Funding Gap",
+        "Investment Priority",
+        "Donor Readiness"
+      ],
       ...filteredCountries.map(c => [
         c.country_name,
-        c.region || "N/A",
+        c.reform_tier || "N/A",
         c.sdg_score,
         c.sdg_3_4_score,
         c.sdg_10_2_score,
         c.sdg_16_3_score,
         c.reform_score || 0,
-        c.population || 0,
+        c.law_status || "N/A",
+        c.implementation_status || "N/A",
+        c.budget_level || "N/A",
+        c.priority_level || "N/A",
+        c.funding_gap_level || "N/A",
+        c.investment_priority || "N/A",
+        c.donor_readiness_score || 0,
       ]),
     ].map(row => row.join(",")).join("\n");
 
@@ -252,11 +319,11 @@ export default function SDGIntelligencePage() {
       {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-8 md:py-10">
-        <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 mb-4 transition-colors">
+          <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 mb-4 transition-colors">
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
           </Link>
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
             <div className="px-3 py-1 bg-cyan-500/20 rounded-full border border-cyan-500/30">
               <span className="text-cyan-300 text-xs font-mono tracking-wider">
                 SDG INTELLIGENCE
@@ -267,15 +334,21 @@ export default function SDGIntelligencePage() {
                 AGENDA 2063
               </span>
             </div>
+            <div className="px-3 py-1 bg-emerald-500/20 rounded-full border border-emerald-500/30">
+              <span className="text-emerald-300 text-xs font-mono tracking-wider">
+                MENTAL HEALTH REFORMS
+              </span>
+            </div>
           </div>
 
           <div className="flex justify-between items-start flex-wrap gap-4">
             <div>
               <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-                Continental SDG Intelligence
+                Continental SDG & Mental Health Intelligence
               </h1>
               <p className="text-slate-300 text-sm md:text-base mt-2 max-w-2xl">
-                Monitor Africa's progress on Mental Health, Sustainable Development Goals and Agenda 2063 implementation using real-time governance intelligence.
+                Monitor Africa's progress on Mental Health Reforms, Sustainable Development Goals and Agenda 2063 
+                implementation using real-time governance intelligence from the mental_health_reforms database.
               </p>
               {lastUpdated && (
                 <p className="text-slate-500 text-xs mt-2">
@@ -335,7 +408,7 @@ export default function SDGIntelligencePage() {
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <div className="flex items-center gap-2 mb-1">
               <TrendingUp className="w-4 h-4 text-emerald-400" />
-              <p className="text-slate-400 text-xs">Average SDG Score</p>
+              <p className="text-slate-400 text-xs">Avg SDG Score</p>
             </div>
             <p className="text-2xl font-bold text-emerald-400">{metrics?.average_sdg_score || 0}%</p>
           </div>
@@ -357,7 +430,7 @@ export default function SDGIntelligencePage() {
           </div>
         </div>
 
-        {/* Regional Breakdown */}
+        {/* Reform Tier Breakdown */}
         {regions.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
             {regions.map((region) => (
@@ -365,7 +438,7 @@ export default function SDGIntelligencePage() {
                 setFilterRegion(region.region);
                 setShowFilters(true);
               }}>
-                <p className="text-slate-400 text-xs">{region.region}</p>
+                <p className="text-slate-400 text-xs">Reform Tier: {region.region}</p>
                 <div className="flex justify-between items-center mt-1">
                   <p className="text-white font-bold">{region.countries.length} countries</p>
                   <p className={`text-sm font-bold ${getScoreColor(region.average_sdg_score)}`}>
@@ -386,7 +459,7 @@ export default function SDGIntelligencePage() {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search country or region..."
+                  placeholder="Search country, tier, or status..."
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                 />
               </div>
@@ -422,9 +495,9 @@ export default function SDGIntelligencePage() {
           </div>
 
           {showFilters && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-700">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-slate-700">
               <div>
-                <label className="text-slate-400 text-sm block mb-2">Region</label>
+                <label className="text-slate-400 text-sm block mb-2">Reform Tier</label>
                 <select
                   value={filterRegion}
                   onChange={(e) => setFilterRegion(e.target.value)}
@@ -432,24 +505,37 @@ export default function SDGIntelligencePage() {
                 >
                   {getUniqueRegions.map(region => (
                     <option key={region} value={region}>
-                      {region === "all" ? "All Regions" : region}
+                      {region === "all" ? "All Tiers" : region}
                     </option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="text-slate-400 text-sm block mb-2">Sort By</label>
+                <label className="text-slate-400 text-sm block mb-2">Law Status</label>
                 <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as keyof Country)}
+                  value={filterTier}
+                  onChange={(e) => setFilterTier(e.target.value)}
                   className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
                 >
-                  <option value="country_name">Country Name</option>
-                  <option value="sdg_score">SDG Score</option>
-                  <option value="sdg_3_4_score">SDG 3.4 Score</option>
-                  <option value="sdg_10_2_score">SDG 10.2 Score</option>
-                  <option value="sdg_16_3_score">SDG 16.3 Score</option>
-                  <option value="reform_score">Reform Score</option>
+                  {getUniqueTiers.map(tier => (
+                    <option key={tier} value={tier}>
+                      {tier === "all" ? "All Statuses" : tier}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Priority Level</label>
+                <select
+                  value={filterPriority}
+                  onChange={(e) => setFilterPriority(e.target.value)}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
+                >
+                  {getUniquePriorities.map(priority => (
+                    <option key={priority} value={priority}>
+                      {priority === "all" ? "All Priorities" : priority}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -466,7 +552,7 @@ export default function SDGIntelligencePage() {
             {metrics?.low_performers && metrics.low_performers > 0 ? (
               <>
                 {metrics.low_performers} countries are scoring below 40% and require immediate attention.
-                Countries scoring below 60% across SDG 3 and SDG 16 should be prioritized for mental health
+                Countries scoring below 60% across SDG 3, SDG 10, and SDG 16 should be prioritized for mental health
                 governance strengthening, workforce investment and policy reform acceleration.
               </>
             ) : (
@@ -474,7 +560,8 @@ export default function SDGIntelligencePage() {
             )}
             {topPerformers.length > 0 && (
               <span className="block mt-2 text-emerald-400 text-xs">
-                🏆 Top performer: {topPerformers[0]?.country_name} with {topPerformers[0]?.sdg_score}% overall score.
+                🏆 Top performer: {topPerformers[0]?.country_name} with {topPerformers[0]?.sdg_score}% overall SDG score.
+                {topPerformers[0]?.reform_tier && ` (Tier: ${topPerformers[0].reform_tier})`}
               </span>
             )}
           </p>
@@ -509,7 +596,7 @@ export default function SDGIntelligencePage() {
                       Country
                     </th>
                     <th className="p-4 text-left text-slate-400 text-sm font-medium cursor-pointer hover:text-white transition-colors" onClick={() => handleSort("region")}>
-                      Region
+                      Tier
                     </th>
                     <th className="p-4 text-left text-slate-400 text-sm font-medium cursor-pointer hover:text-white transition-colors" onClick={() => handleSort("sdg_score")}>
                       SDG Score
@@ -533,7 +620,7 @@ export default function SDGIntelligencePage() {
                   {filteredCountries.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="p-8 text-center text-slate-400">
-                        {search || filterRegion !== "all"
+                        {search || filterRegion !== "all" || filterTier !== "all" || filterPriority !== "all"
                           ? "No countries match your search criteria"
                           : "No countries found"}
                       </td>
@@ -550,6 +637,9 @@ export default function SDGIntelligencePage() {
                           <td className="p-4 text-slate-500 text-sm">{index + 1}</td>
                           <td className="p-4 font-medium text-white">
                             {country.country_name}
+                            {country.priority_level === "high" && (
+                              <span className="ml-2 px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] rounded-full">HIGH PRIORITY</span>
+                            )}
                           </td>
                           <td className="p-4 text-slate-300 text-sm">{country.region || "—"}</td>
                           <td className={`p-4 font-bold ${getScoreColor(country.sdg_score)}`}>
@@ -595,7 +685,16 @@ export default function SDGIntelligencePage() {
                   <div className="flex justify-between items-start mb-3">
                     <div>
                       <h3 className="text-white font-bold">{country.country_name}</h3>
-                      <p className="text-slate-400 text-xs">{country.region || "Region not specified"}</p>
+                      <p className="text-slate-400 text-xs">Tier: {country.region || "Not specified"}</p>
+                      {country.priority_level && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                          country.priority_level === "high" ? "bg-red-500/20 text-red-400" :
+                          country.priority_level === "medium" ? "bg-yellow-500/20 text-yellow-400" :
+                          "bg-emerald-500/20 text-emerald-400"
+                        }`}>
+                          {country.priority_level.toUpperCase()} PRIORITY
+                        </span>
+                      )}
                     </div>
                     <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getScoreBg(overall)} border`}>
                       {getScoreIcon(overall)}
@@ -630,10 +729,10 @@ export default function SDGIntelligencePage() {
                     </div>
                   </div>
 
-                  {country.population && (
+                  {country.law_status && (
                     <p className="text-slate-500 text-xs mt-3 flex items-center gap-1">
-                      <Users className="w-3 h-3" />
-                      Population: {country.population.toLocaleString()}
+                      <Building2 className="w-3 h-3" />
+                      Law: {country.law_status}
                     </p>
                   )}
                 </div>
@@ -654,8 +753,17 @@ export default function SDGIntelligencePage() {
                 </h2>
                 <button onClick={() => setShowDetailModal(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
               </div>
-              <p className="text-slate-400 text-sm mt-1">
-                {selectedCountry.region || "Region not specified"}
+              <p className="text-slate-400 text-sm mt-1 flex items-center gap-2">
+                Reform Tier: {selectedCountry.region || "Not specified"}
+                {selectedCountry.priority_level && (
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                    selectedCountry.priority_level === "high" ? "bg-red-500/20 text-red-400" :
+                    selectedCountry.priority_level === "medium" ? "bg-yellow-500/20 text-yellow-400" :
+                    "bg-emerald-500/20 text-emerald-400"
+                  }`}>
+                    {selectedCountry.priority_level.toUpperCase()} PRIORITY
+                  </span>
+                )}
               </p>
             </div>
             <div className="p-6 space-y-6">
@@ -690,12 +798,51 @@ export default function SDGIntelligencePage() {
                     {selectedCountry.reform_score || 0}%
                   </p>
                 </div>
-                {selectedCountry.population && (
+                {selectedCountry.donor_readiness_score !== undefined && (
                   <div className="bg-slate-700/30 rounded-xl p-4 text-center">
-                    <p className="text-slate-400 text-xs">Population</p>
-                    <p className="text-2xl font-bold text-white">
-                      {(selectedCountry.population / 1000000).toFixed(1)}M
+                    <p className="text-slate-400 text-xs">Donor Readiness</p>
+                    <p className={`text-2xl font-bold ${getScoreColor(selectedCountry.donor_readiness_score)}`}>
+                      {selectedCountry.donor_readiness_score}%
                     </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {selectedCountry.law_status && (
+                  <div className="bg-slate-700/30 rounded-xl p-3">
+                    <p className="text-slate-400 text-xs">Law Status</p>
+                    <p className="text-white font-medium">{selectedCountry.law_status}</p>
+                  </div>
+                )}
+                {selectedCountry.implementation_status && (
+                  <div className="bg-slate-700/30 rounded-xl p-3">
+                    <p className="text-slate-400 text-xs">Implementation</p>
+                    <p className="text-white font-medium">{selectedCountry.implementation_status}</p>
+                  </div>
+                )}
+                {selectedCountry.budget_level && (
+                  <div className="bg-slate-700/30 rounded-xl p-3">
+                    <p className="text-slate-400 text-xs">Budget Level</p>
+                    <p className="text-white font-medium">{selectedCountry.budget_level}</p>
+                  </div>
+                )}
+                {selectedCountry.funding_gap_level && (
+                  <div className="bg-slate-700/30 rounded-xl p-3">
+                    <p className="text-slate-400 text-xs">Funding Gap</p>
+                    <p className="text-white font-medium">{selectedCountry.funding_gap_level}</p>
+                  </div>
+                )}
+                {selectedCountry.investment_priority && (
+                  <div className="bg-slate-700/30 rounded-xl p-3 col-span-2">
+                    <p className="text-slate-400 text-xs">Investment Priority</p>
+                    <p className="text-white font-medium">{selectedCountry.investment_priority}</p>
+                  </div>
+                )}
+                {selectedCountry.estimated_investment_need && (
+                  <div className="bg-slate-700/30 rounded-xl p-3 col-span-2">
+                    <p className="text-slate-400 text-xs">Estimated Investment Need</p>
+                    <p className="text-white font-medium">${selectedCountry.estimated_investment_need.toLocaleString()}</p>
                   </div>
                 )}
               </div>
@@ -723,6 +870,7 @@ export default function SDGIntelligencePage() {
                     : selectedCountry.sdg_score >= 80 && selectedCountry.sdg_16_3_score >= 80
                     ? `✅ ${selectedCountry.country_name} demonstrates strong performance in both health and governance. Continue to share best practices with other African nations.`
                     : `📊 ${selectedCountry.country_name} shows moderate performance. Focus on strengthening ${selectedCountry.sdg_score < 70 ? 'SDG Score' : 'SDG 16.3 (Governance)'} to achieve Agenda 2063 targets.`}
+                  {selectedCountry.priority_level === "high" && " 🚨 This country is flagged as HIGH PRIORITY for reform acceleration."}
                 </p>
               </div>
 

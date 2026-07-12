@@ -598,7 +598,7 @@ const fetchAllResources = async () => {
       const { data: surveysData, error: surveysError } = await supabase
         .from("surveys")
         .select("*")
-        .in("status", ["Active", "published"]);
+        .in("status", ["published"]);
   
       if (!surveysError && surveysData) {
         surveysData.forEach((survey: any) => {
