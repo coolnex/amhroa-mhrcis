@@ -936,45 +936,64 @@ export default function AdminDashboard() {
     }
   };
 
-  // User Management Functions
+  // Add this function for debugging
+  const debugUserStatus = async (userId: string) => {
+    try {
+      console.log("🔍 Debugging user status for ID:", userId);
+      
+      const { data, error } = await supabase
+        .from("users")
+        .select("id, full_name, email, status, role, updated_at")
+        .eq("id", userId)
+        .single();
+      
+      if (error) {
+        console.error("❌ Debug fetch error:", error);
+        alert(`Error fetching user: ${error.message}`);
+        return;
+      }
+      
+      console.log("📊 User data from database:", data);
+      alert(`User: ${data?.full_name}\nStatus: ${data?.status}\nRole: ${data?.role}\nUpdated: ${data?.updated_at}`);
+      
+      // Also check if there might be a view or RLS issue
+      const { data: allUsers, error: allError } = await supabase
+        .from("users")
+        .select("id, full_name, status")
+        .limit(5);
+        
+      console.log("📊 First 5 users in DB:", allUsers);
+      
+    } catch (err) {
+      console.error("❌ Debug error:", err);
+      alert("Debug failed. Check console.");
+    }
+  };
+
   const approveUser = async (userId: string) => {
     setActionLoading(userId);
     try {
-      console.log("🔍 Approving user:", userId);
-  
-      // Simple update without select
-      const { error } = await supabase
-        .from("users")
-        .update({ 
-          status: "Approved",
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", userId);
+      console.log("🔍 Approving user via RPC:", userId);
+      
+      const { data, error } = await supabase
+        .rpc('admin_approve_user', { target_user_id: userId });
   
       if (error) {
-        console.error("❌ Update error:", error);
+        console.error("❌ RPC error:", error);
         alert(`Failed to approve user: ${error.message}`);
-        setActionLoading(null);
         return;
       }
   
-      console.log("✅ Update completed");
-  
-      // Fetch fresh data
-      const { data: freshUsers, error: fetchError } = await supabase
-        .from("users")
-        .select("*")
-        .order("created_at", { ascending: false });
-  
-      if (fetchError) {
-        console.error("❌ Fetch error:", fetchError);
-      } else if (freshUsers) {
-        console.log("✅ Fresh users fetched:", freshUsers.length);
-        setUsers(freshUsers);
+      console.log("✅ RPC response:", data);
+      
+      if (data?.success) {
+        await fetchUsers();
+        await fetchActivityFeed();
+        alert(data.message || "User approved successfully!");
+      } else {
+        alert(data?.message || "Failed to approve user");
       }
-  
-      await fetchActivityFeed();
-      alert("User approved successfully!");
+      
     } catch (err) {
       console.error("❌ Error approving user:", err);
       alert("Failed to approve user");
@@ -982,19 +1001,6 @@ export default function AdminDashboard() {
       setActionLoading(null);
     }
   };
-
-  // Add this temporary debug function
-const debugUserStatus = async (userId: string) => {
-  const { data, error } = await supabase
-    .from("users")
-    .select("*")
-    .eq("id", userId)
-    .single();
-  
-  console.log("🔍 Direct DB query result:", data);
-  console.log("🔍 Direct DB query error:", error);
-  alert(`User status in DB: ${data?.status}`);
-};
 
   const rejectUser = async (userId: string) => {
     setActionLoading(userId);
@@ -1366,6 +1372,13 @@ const debugUserStatus = async (userId: string) => {
               </span>
             )}
           </button>
+            <a
+            href="/admin/opportunities"
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-all bg-cyan-600 text-white hover:text-white hover:bg-slate-800"
+            >
+            <Activity className="w-4 h-4 inline mr-2" />
+            Post Opportunity
+            </a>
         </div>
 
         {/* Users Tab */}
@@ -1470,8 +1483,13 @@ const debugUserStatus = async (userId: string) => {
                                 onClick={() => approveUser(u.id)}
                                 className="p-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg text-emerald-400"
                                 title="Approve"
+                                disabled={actionLoading === u.id}
                               >
-                                <CheckCircle className="w-4 h-4" />
+                                {actionLoading === u.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle className="w-4 h-4" />
+                                )}
                               </button>
                               <button
                                 onClick={() => rejectUser(u.id)}

@@ -170,6 +170,7 @@ const navigationGroups = {
       { name: "System Health", href: "/system-health", icon: Activity },
       { name: "Governance Alerts", href: "/governance-alerts", icon: AlertTriangle },
       { name: "Surveys", href: "/admin/surveys", icon: FileText },
+      { name: "Funding Requests", href: "/funding-requests", icon: Target },
     ]
   },
   regionalexecutives: {
@@ -194,9 +195,9 @@ const navigationGroups = {
   repository: {
     label: "KNOWLEDGE REPOSITORY",
     icon: FolderGit2,
-    roles: ["Admin", "admin_coordinator", "Regional_Executive" , "Researcher", "researcher_coordinator", "CSO", "cso_coordinator", "Coordinator", "Mental_Health_Professional", "mental_health_coordinator", "Donor", "donor_coordinator"],
+    roles: ["Admin", "admin_coordinator"],
     links: [
-      { name: "Repository", href: "/knowledge-repository", icon: FolderGit2 },
+      
       { name: "Research Library", href: "/research-library", icon: Bot },
       { name: "Submissions", href: "/data-collection/submissions", icon: FileCheck },
     ],
@@ -209,8 +210,10 @@ const navigationGroups = {
       { name: "Organizations", href: "/organizations", icon: Building2 },
       { name: "Collaboraton Hub", href: "/organizations/collaboration-hub", icon: BriefcaseBusiness},
       { name: "Research Hub", href: "/repository", icon: BookOpen },
+      { name: "Repository", href: "/knowledge-repository", icon: FolderGit2 },
       { name: "Events & Networking", href: "/events", icon: Handshake },
       { name: "Advocacy Campaigns", href: "/advocacy-campaigns", icon:Flag },
+      { name: "Opportunities", href: "/opportunities", icon: Target },
     ],
   },
   datacollection: {
@@ -221,7 +224,6 @@ const navigationGroups = {
       { name: "Submit Report", href: "/data-collection/field-reports", icon: AlertTriangle },
       { name: "Surveys", href: "/data-collection/surveys", icon: ClipboardList },
       { name: "My Submissions", href: "/data-collection/submissions", icon: FolderOpen },
-      { name: "Funding Requests", href: "/funding-requests", icon: Target },
     ],
   },
   investment: {

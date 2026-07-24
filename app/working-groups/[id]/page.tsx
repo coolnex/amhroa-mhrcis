@@ -38,6 +38,10 @@ import {
   PauseCircle,
   FolderCheck,
   Timer,
+  Save,
+  UserCog,
+  Repeat,
+  FileText as FileTextIcon,
 } from "lucide-react";
 
 interface WorkingGroup {
@@ -85,6 +89,7 @@ interface Comment {
   full_name: string;
   comment: string;
   created_at: string;
+  activity_id: string;
 }
 
 export default function WorkingGroupDetailPage() {
@@ -126,24 +131,40 @@ export default function WorkingGroupDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   // ============================================
+  // EDIT GROUP DESCRIPTION STATE
+  // ============================================
+  const [showEditDescription, setShowEditDescription] = useState(false);
+  const [editDescription, setEditDescription] = useState("");
+  const [savingDescription, setSavingDescription] = useState(false);
+
+  // ============================================
+  // EDIT TASK STATE
+  // ============================================
+  const [showEditTask, setShowEditTask] = useState(false);
+  const [editingTask, setEditingTask] = useState<Activity | null>(null);
+  const [editTaskForm, setEditTaskForm] = useState({
+    title: "",
+    description: "",
+    status: "",
+    priority: "",
+    assigned_to: "",
+    due_date: "",
+    estimated_hours: 0,
+  });
+  const [savingTask, setSavingTask] = useState(false);
+
+  // ============================================
   // FIXED: Define missing computed variables
   // ============================================
   
-  // Check if user can access the group
   const canAccess = isMember || userRole === "Lead" || userRole === "Co-Lead";
-  
-  // Check if user can manage the group (add/remove members, change roles)
   const canManageGroup = userRole === "Lead" || userRole === "Co-Lead";
-  
-  // Check if user can add activities
   const canAddActivities = isMember || canManageGroup;
   
-  // Filtered activities based on status filter
   const filteredActivities = statusFilter === "all" 
     ? activities 
     : activities.filter(a => a.status === statusFilter);
 
-  // Get member stats function
   const getMemberStats = (userId: string) => {
     const userActivities = activities.filter(a => a.assigned_to === userId);
     return {
@@ -227,7 +248,6 @@ export default function WorkingGroupDetailPage() {
     }
   };
 
-
   const fetchGroupData = async (currentUser?: any) => {
     setLoading(true);
     try {
@@ -240,8 +260,9 @@ export default function WorkingGroupDetailPage() {
   
       if (groupError) throw groupError;
       setGroup(groupData);
+      setEditDescription(groupData?.description || "");
   
-      // Fetch members - FIXED: Use a simpler approach
+      // Fetch members
       const { data: membersData, error: membersError } = await supabase
         .from("working_group_members")
         .select("*")
@@ -251,11 +272,9 @@ export default function WorkingGroupDetailPage() {
   
       let formattedMembers: Member[] = [];
       if (membersData && membersData.length > 0) {
-        // Get all user IDs
         const userIds = membersData.map(m => m.user_id).filter(id => id);
         
         if (userIds.length > 0) {
-          // Fetch user details separately
           const { data: usersData, error: usersError } = await supabase
             .from("users")
             .select("id, full_name, email")
@@ -263,17 +282,15 @@ export default function WorkingGroupDetailPage() {
   
           if (usersError) {
             console.error("Error fetching users:", usersError);
-            // If users table doesn't exist, use member data directly
             formattedMembers = membersData.map((m: any) => ({
               id: m.id,
               user_id: m.user_id,
-              full_name: m.user_id || 'Unknown User', // Fallback
+              full_name: m.user_id || 'Unknown User',
               email: '',
               role: m.role || 'Member',
               joined_at: m.joined_at,
             }));
           } else {
-            // Create a map of user data
             const userMap = new Map();
             usersData?.forEach((user: any) => {
               userMap.set(user.id, user);
@@ -307,7 +324,6 @@ export default function WorkingGroupDetailPage() {
   
       if (activitiesError) throw activitiesError;
   
-      // Get assignee and creator names
       const activitiesWithNames = await Promise.all(
         (activitiesData || []).map(async (activity) => {
           let assignedToName = "Unassigned";
@@ -368,6 +384,108 @@ export default function WorkingGroupDetailPage() {
       console.error("Error fetching group data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ============================================
+  // UPDATE GROUP DESCRIPTION
+  // ============================================
+  const handleUpdateDescription = async () => {
+    if (!editDescription.trim()) {
+      alert("Description cannot be empty");
+      return;
+    }
+
+    setSavingDescription(true);
+    try {
+      const { error } = await supabase
+        .from("working_groups")
+        .update({ 
+          description: editDescription.trim(),
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", groupId);
+
+      if (error) throw error;
+
+      setGroup(prev => prev ? { ...prev, description: editDescription.trim() } : null);
+      setShowEditDescription(false);
+      alert("Description updated successfully!");
+    } catch (error) {
+      console.error("Error updating description:", error);
+      alert("Failed to update description. Please try again.");
+    } finally {
+      setSavingDescription(false);
+    }
+  };
+
+  // ============================================
+  // EDIT TASK FUNCTIONS
+  // ============================================
+  const handleEditTask = (activity: Activity) => {
+    setEditingTask(activity);
+    setEditTaskForm({
+      title: activity.title,
+      description: activity.description || "",
+      status: activity.status,
+      priority: activity.priority,
+      assigned_to: activity.assigned_to || "",
+      due_date: activity.due_date || "",
+      estimated_hours: activity.estimated_hours || 0,
+    });
+    setShowEditTask(true);
+  };
+
+  const handleSaveTaskEdit = async () => {
+    if (!editTaskForm.title.trim()) {
+      alert("Title is required");
+      return;
+    }
+
+    if (!editingTask) return;
+
+    setSavingTask(true);
+    try {
+      const { error } = await supabase
+        .from("working_group_activities")
+        .update({
+          title: editTaskForm.title.trim(),
+          description: editTaskForm.description.trim(),
+          status: editTaskForm.status,
+          priority: editTaskForm.priority,
+          assigned_to: editTaskForm.assigned_to || null,
+          due_date: editTaskForm.due_date || null,
+          estimated_hours: editTaskForm.estimated_hours || 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editingTask.id);
+
+      if (error) throw error;
+
+      setActivities(prev => prev.map(a => 
+        a.id === editingTask.id ? {
+          ...a,
+          title: editTaskForm.title.trim(),
+          description: editTaskForm.description.trim(),
+          status: editTaskForm.status as any,
+          priority: editTaskForm.priority as any,
+          assigned_to: editTaskForm.assigned_to,
+          due_date: editTaskForm.due_date,
+          estimated_hours: editTaskForm.estimated_hours,
+          assigned_to_name: editTaskForm.assigned_to 
+            ? members.find(m => m.user_id === editTaskForm.assigned_to)?.full_name || "Unassigned"
+            : "Unassigned",
+        } : a
+      ));
+
+      setShowEditTask(false);
+      setEditingTask(null);
+      alert("Task updated successfully!");
+    } catch (error) {
+      console.error("Error updating task:", error);
+      alert("Failed to update task. Please try again.");
+    } finally {
+      setSavingTask(false);
     }
   };
 
@@ -605,6 +723,9 @@ export default function WorkingGroupDetailPage() {
     }
   };
 
+  // ============================================
+  // FIXED: ADD COMMENT - Enforcing schema
+  // ============================================
   const addComment = async (activityId: string) => {
     if (!comment.trim()) {
       alert("Please enter a comment");
@@ -616,11 +737,19 @@ export default function WorkingGroupDetailPage() {
       return;
     }
 
+    // Check if user is a member of this group
+    const isGroupMember = members.some(m => m.user_id === user.id);
+    if (!isGroupMember) {
+      alert("Only group members can comment");
+      return;
+    }
+
     try {
       console.log("📝 Adding comment for activity:", activityId);
-      console.log("📝 User:", user.id, user.full_name);
+      console.log("📝 User:", user.id);
       console.log("📝 Comment:", comment.trim());
-      
+
+      // Using the exact schema: activity_id, user_id, comment, created_at
       const { data, error } = await supabase
         .from("activity_comments")
         .insert({
@@ -647,27 +776,27 @@ export default function WorkingGroupDetailPage() {
     }
   };
 
+  // ============================================
+  // FIXED: FETCH COMMENTS - Enforcing schema
+  // ============================================
   const fetchComments = async (activityId: string) => {
     try {
       console.log("🔍 Fetching comments for activity:", activityId);
-      
-      const { data: memberCheck, error: memberError } = await supabase
-        .from("working_group_members")
-        .select("id")
-        .eq("working_group_id", groupId)
-        .eq("user_id", user?.id)
-        .maybeSingle();
 
-      if (memberError || !memberCheck) {
+      // Check if user is a member of this group
+      const isGroupMember = members.some(m => m.user_id === user?.id);
+      if (!isGroupMember) {
         console.warn("User is not a member of this group");
         setComments(prev => ({ ...prev, [activityId]: [] }));
         return;
       }
 
+      // Fetch comments using the schema
       const { data, error } = await supabase
         .from("activity_comments")
         .select(`
           id,
+          activity_id,
           user_id,
           comment,
           created_at
@@ -686,6 +815,7 @@ export default function WorkingGroupDetailPage() {
         return;
       }
 
+      // Get user names for comments
       const userIds = [...new Set(data.map(c => c.user_id).filter(id => id))];
       
       let usersMap: Record<string, string> = {};
@@ -709,15 +839,57 @@ export default function WorkingGroupDetailPage() {
         full_name: usersMap[c.user_id] || "Unknown User",
         comment: c.comment,
         created_at: c.created_at,
+        activity_id: c.activity_id, // Ensure activity_id is included
       }));
       
       console.log("✅ Comments loaded:", formattedComments.length);
-      console.log("📋 Comments data:", formattedComments);
       setComments(prev => ({ ...prev, [activityId]: formattedComments }));
       
     } catch (error) {
       console.error("❌ Error fetching comments:", error);
       setComments(prev => ({ ...prev, [activityId]: [] }));
+    }
+  };
+
+  // ============================================
+  // FIXED: DELETE COMMENT (Optional)
+  // ============================================
+  const deleteComment = async (commentId: string) => {
+    if (!confirm("Are you sure you want to delete this comment?")) return;
+
+    try {
+      // Check if user is the comment author or admin/lead
+      const commentToDelete = Object.values(comments)
+        .flat()
+        .find(c => c.id === commentId);
+
+      if (!commentToDelete) return;
+
+      const isAuthor = commentToDelete.user_id === user?.id;
+      const isAdminOrLead = canManageGroup;
+
+      if (!isAuthor && !isAdminOrLead) {
+        alert("You don't have permission to delete this comment");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("activity_comments")
+        .delete()
+        .eq("id", commentId);
+
+      if (error) throw error;
+
+      // Update local state
+      const activityId = commentToDelete.activity_id;
+      setComments(prev => ({
+        ...prev,
+        [activityId]: prev[activityId]?.filter(c => c.id !== commentId) || []
+      }));
+
+    } catch (error) {
+      console.error("Error deleting comment:", error);
+      alert("Failed to delete comment");
     }
   };
 
@@ -808,10 +980,55 @@ export default function WorkingGroupDetailPage() {
           </Link>
 
           <div className="flex justify-between items-start flex-wrap gap-4">
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-white">{group.name}</h1>
-              <p className="text-slate-300 text-sm md:text-base mt-2">{group.description}</p>
+            <div className="flex-1">
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl md:text-4xl font-bold text-white">{group.name}</h1>
+                {canManageGroup && (
+                  <button
+                    onClick={() => setShowEditDescription(true)}
+                    className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-400 hover:text-white transition-colors"
+                    title="Edit Description"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              
+              {/* Description with edit mode */}
+              {showEditDescription ? (
+                <div className="mt-2">
+                  <textarea
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    rows={3}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
+                    placeholder="Enter group description..."
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={handleUpdateDescription}
+                      disabled={savingDescription}
+                      className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {savingDescription ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      {savingDescription ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowEditDescription(false);
+                        setEditDescription(group.description || "");
+                      }}
+                      className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-slate-300 text-sm md:text-base mt-2">{group.description}</p>
+              )}
             </div>
+            
             <div className="flex gap-2">
               {canManageGroup && (
                 <button
@@ -822,6 +1039,13 @@ export default function WorkingGroupDetailPage() {
                   <span className="text-sm">Add Member</span>
                 </button>
               )}
+              <Link
+                href={`/working-groups/${groupId}/progress-report`}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-xl text-white transition-colors"
+              >
+                <FileTextIcon className="w-4 h-4" />
+                <span className="text-sm">Progress Report</span>
+              </Link>
               <button
                 onClick={() => fetchGroupData(user)}
                 className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
@@ -1043,6 +1267,46 @@ export default function WorkingGroupDetailPage() {
                                 <MessageSquare className="w-3 h-3" />
                                 {(comments[activity.id] || []).length}
                               </div>
+                              {canManageGroup && (
+                                <div className="mt-2 flex gap-1">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleEditTask(activity);
+                                    }}
+                                    className="p-1 bg-cyan-600/20 hover:bg-cyan-600/30 rounded text-cyan-400 text-[10px] transition-colors flex items-center gap-0.5"
+                                  >
+                                    <Edit className="w-3 h-3" />
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const memberIds = members.map(m => ({ id: m.user_id, name: m.full_name }));
+                                      if (memberIds.length === 0) return;
+                                      const memberList = memberIds.map((m, i) => `${i+1}. ${m.name}`).join('\n');
+                                      const choice = prompt(
+                                        `Select a member to reassign this task:\n${memberList}\n\nEnter the number:`
+                                      );
+                                      if (choice) {
+                                        const index = parseInt(choice) - 1;
+                                        if (index >= 0 && index < memberIds.length) {
+                                          const selectedMemberId = memberIds[index].id;
+                                          supabase
+                                            .from("working_group_activities")
+                                            .update({ assigned_to: selectedMemberId })
+                                            .eq("id", activity.id)
+                                            .then(() => fetchGroupData(user));
+                                        }
+                                      }
+                                    }}
+                                    className="p-1 bg-purple-600/20 hover:bg-purple-600/30 rounded text-purple-400 text-[10px] transition-colors flex items-center gap-0.5"
+                                  >
+                                    <Repeat className="w-3 h-3" />
+                                    Reassign
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           ))}
                           {statusActivities.length === 0 && (
@@ -1085,6 +1349,46 @@ export default function WorkingGroupDetailPage() {
                             <span className={`px-2 py-1 rounded-full text-xs ${priorityColors[activity.priority]}`}>
                               {activity.priority}
                             </span>
+                            {canManageGroup && (
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEditTask(activity);
+                                  }}
+                                  className="p-1 bg-cyan-600/20 hover:bg-cyan-600/30 rounded text-cyan-400 text-xs transition-colors flex items-center gap-1"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const memberIds = members.map(m => ({ id: m.user_id, name: m.full_name }));
+                                    if (memberIds.length === 0) return;
+                                    const memberList = memberIds.map((m, i) => `${i+1}. ${m.name}`).join('\n');
+                                    const choice = prompt(
+                                      `Select a member to reassign this task:\n${memberList}\n\nEnter the number:`
+                                    );
+                                    if (choice) {
+                                      const index = parseInt(choice) - 1;
+                                      if (index >= 0 && index < memberIds.length) {
+                                        const selectedMemberId = memberIds[index].id;
+                                        supabase
+                                          .from("working_group_activities")
+                                          .update({ assigned_to: selectedMemberId })
+                                          .eq("id", activity.id)
+                                          .then(() => fetchGroupData(user));
+                                      }
+                                    }
+                                  }}
+                                  className="p-1 bg-purple-600/20 hover:bg-purple-600/30 rounded text-purple-400 text-xs transition-colors flex items-center gap-1"
+                                >
+                                  <Repeat className="w-3 h-3" />
+                                  Reassign
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-slate-400">
@@ -1138,7 +1442,21 @@ export default function WorkingGroupDetailPage() {
                   <h2 className="text-2xl font-bold text-white">{selectedActivity.title}</h2>
                   <p className="text-slate-400 text-sm mt-1">{selectedActivity.description}</p>
                 </div>
-                <button onClick={() => setShowTaskDetails(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+                <div className="flex gap-2">
+                  {canManageGroup && (
+                    <button
+                      onClick={() => {
+                        setShowTaskDetails(false);
+                        handleEditTask(selectedActivity);
+                      }}
+                      className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors flex items-center gap-1"
+                    >
+                      <Edit className="w-4 h-4" />
+                      Edit Task
+                    </button>
+                  )}
+                  <button onClick={() => setShowTaskDetails(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+                </div>
               </div>
             </div>
             <div className="p-6">
@@ -1228,7 +1546,7 @@ export default function WorkingGroupDetailPage() {
                 </div>
               )}
 
-              {/* Comments */}
+              {/* Comments Section */}
               <div className="border-t border-slate-700 pt-4">
                 <h4 className="text-white font-medium mb-3 flex items-center gap-2">
                   <MessageSquare className="w-4 h-4" />
@@ -1241,20 +1559,32 @@ export default function WorkingGroupDetailPage() {
                     (comments[selectedActivity.id] || []).map((comment) => (
                       <div key={comment.id} className="bg-slate-700/30 rounded-lg p-3">
                         <div className="flex justify-between items-start">
-                          <span className="text-cyan-400 text-xs font-medium">
-                            {comment.full_name || "Unknown User"}
+                          <div className="flex items-center gap-2">
+                            <span className="text-cyan-400 text-xs font-medium">
+                              {comment.full_name || "Unknown User"}
+                            </span>
                             {comment.user_id === user?.id && (
-                              <span className="ml-2 text-emerald-400 text-[10px]">(You)</span>
+                              <span className="text-emerald-400 text-[10px]">(You)</span>
                             )}
-                          </span>
-                          <span className="text-slate-500 text-xs">{new Date(comment.created_at).toLocaleString()}</span>
+                            <span className="text-slate-500 text-xs">
+                              {new Date(comment.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          {(comment.user_id === user?.id || canManageGroup) && (
+                            <button
+                              onClick={() => deleteComment(comment.id)}
+                              className="text-red-400 hover:text-red-300 transition-colors"
+                              title="Delete comment"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                         <p className="text-slate-300 text-sm mt-1">{comment.comment}</p>
                       </div>
                     ))
                   )}
                 </div>
-                {/* Input for new comment */}
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -1272,6 +1602,115 @@ export default function WorkingGroupDetailPage() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Task Modal */}
+      {showEditTask && editingTask && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={() => setShowEditTask(false)}>
+          <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-700 sticky top-0 bg-slate-800 z-10">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <Edit className="w-6 h-6 text-cyan-400" />
+                  Edit Task
+                </h2>
+                <button onClick={() => setShowEditTask(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Title *</label>
+                <input
+                  type="text"
+                  value={editTaskForm.title}
+                  onChange={(e) => setEditTaskForm({ ...editTaskForm, title: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="Enter task title"
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-2">Description</label>
+                <textarea
+                  value={editTaskForm.description}
+                  onChange={(e) => setEditTaskForm({ ...editTaskForm, description: e.target.value })}
+                  rows={3}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
+                  placeholder="Describe the task..."
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Status</label>
+                  <select
+                    value={editTaskForm.status}
+                    onChange={(e) => setEditTaskForm({ ...editTaskForm, status: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="Not Started">Not Started</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Under Review">Under Review</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Blocked">Blocked</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Priority</label>
+                  <select
+                    value={editTaskForm.priority}
+                    onChange={(e) => setEditTaskForm({ ...editTaskForm, priority: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                    <option value="Critical">Critical</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Assign To</label>
+                  <select
+                    value={editTaskForm.assigned_to}
+                    onChange={(e) => setEditTaskForm({ ...editTaskForm, assigned_to: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="">Unassigned</option>
+                    {members.map((member) => (
+                      <option key={member.id} value={member.user_id}>{member.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Due Date</label>
+                  <input
+                    type="date"
+                    value={editTaskForm.due_date}
+                    onChange={(e) => setEditTaskForm({ ...editTaskForm, due_date: e.target.value })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400 text-sm block mb-2">Estimated Hours</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={editTaskForm.estimated_hours}
+                    onChange={(e) => setEditTaskForm({ ...editTaskForm, estimated_hours: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleSaveTaskEdit}
+                disabled={savingTask}
+                className="w-full py-3 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {savingTask ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                {savingTask ? "Saving..." : "Save Changes"}
+              </button>
             </div>
           </div>
         </div>

@@ -22,7 +22,7 @@ const userRoles = [
   { value: "Policymaker", label: "Policymaker", description: "Policy analytics and reform intelligence" },
   { value: "Researcher", label: "Researcher", description: "Access research repository and datasets" },
   { value: "CSO", label: "CSO / NGO", description: "Civil society organization portal" },
-  { value: "Coordinator", label: "Country Coordinator", description: "National reporting and coordination" },
+  { value: "Mental_Health_Professional", label: "Country Coordinator", description: "National reporting and coordination" },
   { value: "Donor", label: "Donor / Investor", description: "Investment intelligence and funding" },
   { value: "Mental_Health_Professional", label: "Mental Health Professional", description: "Clinical resources and networking" },
 ];

@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Loader2,
   Users,
+  ArrowLeft,
   Target,
   Calendar,
   Globe,
@@ -414,6 +415,10 @@ export default function AdvocacyCampaignsPage() {
       {/* Header */}
       <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
         <div className="relative px-6 md:px-8 py-8 md:py-10">
+        <Link href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 mb-4 transition-colors">
+            <ArrowLeft className="w-4 h-4" />
+            Back to Dashboard
+          </Link>
           <div className="flex justify-between items-start flex-wrap gap-4">
             <div>
               <div className="flex items-center gap-3 mb-4">
