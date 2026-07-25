@@ -207,13 +207,13 @@ const navigationGroups = {
     icon: Handshake,
     roles: ["cso", "cso_coordinator", "Regional_Executive" , "coordinator", "Researcher", "researcher_coordinator", "Mental_Health_Professional", "mental_health_coordinator", "Donor", "donor_coordinator", "admin", "admin_coordinator"],
     links: [
+      { name: "Opportunities", href: "/opportunities", icon: Target },
       { name: "Organizations", href: "/organizations", icon: Building2 },
       { name: "Collaboraton Hub", href: "/organizations/collaboration-hub", icon: BriefcaseBusiness},
       { name: "Research Hub", href: "/repository", icon: BookOpen },
       { name: "Repository", href: "/knowledge-repository", icon: FolderGit2 },
       { name: "Events & Networking", href: "/events", icon: Handshake },
       { name: "Advocacy Campaigns", href: "/advocacy-campaigns", icon:Flag },
-      { name: "Opportunities", href: "/opportunities", icon: Target },
     ],
   },
   datacollection: {

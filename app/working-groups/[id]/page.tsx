@@ -127,7 +127,7 @@ export default function WorkingGroupDetailPage() {
   const [updateProgress, setUpdateProgress] = useState<Record<string, number>>({});
   const [showTaskDetails, setShowTaskDetails] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
-  const [viewMode, setViewMode] = useState<"board" | "list">("board");
+  const [viewMode, setViewMode] = useState<"list" | "board">("list");
   const [isLoading, setIsLoading] = useState(true);
 
   // ============================================

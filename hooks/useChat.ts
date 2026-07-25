@@ -1,6 +1,7 @@
 // hooks/useChat.ts
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { chatService } from '@/lib/chat-service';
 
 interface Message {
   id: string;
@@ -43,6 +44,7 @@ export function useChat(userId: string) {
   const userIdRef = useRef<string>(userId);
   const channelRef = useRef<any>(null);
   const isSubscribedRef = useRef<boolean>(false);
+  const isFetchingRef = useRef<boolean>(false);
 
   useEffect(() => {
     userIdRef.current = userId;
@@ -51,14 +53,20 @@ export function useChat(userId: string) {
   const fetchConversations = useCallback(async () => {
     const currentUserId = userIdRef.current;
     
-    // Stop if no user or invalid UUID
     if (!currentUserId || !isValidUUID(currentUserId)) {
       console.log('ℹ️ Invalid user ID, skipping conversation fetch.');
       setLoading(false);
       return;
     }
 
+    // Prevent multiple simultaneous fetches
+    if (isFetchingRef.current) {
+      console.log('ℹ️ Already fetching conversations, skipping...');
+      return;
+    }
+
     try {
+      isFetchingRef.current = true;
       setLoading(true);
       
       const { data: convs, error } = await supabase
@@ -69,17 +77,30 @@ export function useChat(userId: string) {
 
       if (error) throw error;
 
-      // Map unread counts
+      // Get unread counts from cache first
       const conversationsWithCounts = await Promise.all(
         (convs || []).map(async (conv) => {
-          const { count, error: countError } = await supabase
-            .from('chat_messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('conversation_id', conv.id)
-            .eq('is_read', false)
-            .neq('sender_id', currentUserId);
+          // Check cache first
+          let unreadCount = chatService.getUnreadCount(conv.id);
+          
+          // If not in cache, fetch from database
+          if (unreadCount === undefined) {
+            const { count, error: countError } = await supabase
+              .from('chat_messages')
+              .select('*', { count: 'exact', head: true })
+              .eq('conversation_id', conv.id)
+              .eq('is_read', false)
+              .neq('sender_id', currentUserId);
 
-          return { ...conv, unread_count: countError ? 0 : count || 0 };
+            unreadCount = countError ? 0 : count || 0;
+            
+            // Cache the result
+            if (unreadCount > 0) {
+              chatService.setUnreadCount(conv.id, unreadCount);
+            }
+          }
+
+          return { ...conv, unread_count: unreadCount };
         })
       );
 
@@ -88,17 +109,17 @@ export function useChat(userId: string) {
       console.error('Error fetching conversations:', error);
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
   }, []);
 
-  // Real-time subscription
+  // Real-time subscription with proper unread count management
   useEffect(() => {
     const currentUserId = userIdRef.current;
     if (!currentUserId || !isValidUUID(currentUserId)) {
       return;
     }
 
-    // Clean up previous subscription
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
       channelRef.current = null;
@@ -106,6 +127,7 @@ export function useChat(userId: string) {
     }
 
     const channelName = `chat_user_${currentUserId}`;
+    chatService.trackChannel(channelName);
     const chatChannel = supabase.channel(channelName);
 
     chatChannel.on(
@@ -124,6 +146,7 @@ export function useChat(userId: string) {
           return;
         }
 
+        // Add message to UI
         setMessages(prev => {
           const currentRoomMessages = prev[newMessage.conversation_id] || [];
           if (currentRoomMessages.some(m => m.id === newMessage.id)) return prev;
@@ -133,6 +156,26 @@ export function useChat(userId: string) {
           };
         });
 
+        // Update unread count ONLY if the message is from someone else
+        // AND the conversation is not currently active
+        if (newMessage.sender_id !== currentUserId) {
+          // Use chatService to manage unread counts
+          const shouldIncrement = activeConversation !== newMessage.conversation_id;
+          
+          if (shouldIncrement) {
+            const newCount = chatService.incrementUnreadCount(newMessage.conversation_id);
+            
+            // Update conversation list
+            setConversations(prev => prev.map(c => {
+              if (c.id === newMessage.conversation_id) {
+                return { ...c, unread_count: newCount };
+              }
+              return c;
+            }));
+          }
+        }
+
+        // Update last message
         setConversations(prev => prev.map(c => 
           c.id === newMessage.conversation_id 
             ? { ...c, last_message: newMessage.message, last_message_at: newMessage.created_at }
@@ -157,7 +200,7 @@ export function useChat(userId: string) {
         isSubscribedRef.current = false;
       }
     };
-  }, [userId, conversations]);
+  }, [userId, conversations, activeConversation]);
 
   const markMessagesAsRead = useCallback(async (conversationId: string, currentUserId: string) => {
     if (!conversationId || !currentUserId) return;
@@ -170,8 +213,15 @@ export function useChat(userId: string) {
         .eq('is_read', false)
         .neq('sender_id', currentUserId);
   
-      if (error) throw error;
+      if (error) {
+        console.error('Error marking messages as read:', error);
+        return;
+      }
   
+      // Reset unread count in cache
+      chatService.resetUnreadCount(conversationId);
+  
+      // Update conversation list
       setConversations(prev => prev.map(c => 
         c.id === conversationId ? { ...c, unread_count: 0 } : c
       ));
@@ -185,7 +235,6 @@ export function useChat(userId: string) {
     if (!conversationId || !currentUserId) return;
 
     try {
-      // Verify user is a participant
       const { data: conv, error: convError } = await supabase
         .from('chat_conversations')
         .select('participant_ids')
@@ -215,7 +264,9 @@ export function useChat(userId: string) {
         [conversationId]: data || []
       }));
 
+      // Mark messages as read when fetching
       await markMessagesAsRead(conversationId, currentUserId);
+      
     } catch (error) {
       console.error('Error fetching messages:', error);
     }
@@ -226,7 +277,6 @@ export function useChat(userId: string) {
     if (!currentUserId || (!message.trim() && !file)) return;
 
     try {
-      // Verify user is a participant
       const { data: conv, error: convError } = await supabase
         .from('chat_conversations')
         .select('participant_ids')
@@ -307,7 +357,6 @@ export function useChat(userId: string) {
     const validUUIDs = allIds.filter(id => isValidUUID(id));
 
     try {
-      // For direct messages, check if conversation already exists
       if (type === 'direct' && validUUIDs.length === 2) {
         const { data: existingConvs, error: lookupError } = await supabase
           .from('chat_conversations')
@@ -326,7 +375,6 @@ export function useChat(userId: string) {
         }
       }
 
-      // Fetch participant names
       let participantNames: string[] = [];
       if (validUUIDs.length > 0) {
         const { data: userProfiles } = await supabase

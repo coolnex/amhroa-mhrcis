@@ -767,7 +767,39 @@ export default function AdminDashboard() {
     "Horn of Africa",
     "Great Lakes Region",
   ];
+  // Add this function after handleRejectEvent
 
+  const handleDeleteEvent = async (eventId: string) => {
+    setActionLoading(eventId);
+    try {
+      // First, delete any registrations associated with the event
+      const { error: registrationsError } = await supabase
+        .from("event_registrations")
+        .delete()
+        .eq("event_id", eventId);
+
+      if (registrationsError) {
+        console.error("Error deleting event registrations:", registrationsError);
+        // Continue with event deletion even if registrations fail
+      }
+
+      // Delete the event
+      const { error } = await supabase
+        .from("events")
+        .delete()
+        .eq("id", eventId);
+
+      if (error) throw error;
+      
+      alert("Event deleted successfully!");
+      fetchEvents();
+    } catch (error) {
+      console.error("Error deleting event:", error);
+      alert("Failed to delete event. Please try again.");
+    } finally {
+      setActionLoading(null);
+    }
+  };
   // Alert Management Functions
   const handleCreateAlert = async () => {
     if (!alertForm.title || !alertForm.message) {
@@ -2130,6 +2162,23 @@ export default function AdminDashboard() {
                                   <RefreshCw className="w-4 h-4" />
                                 </button>
                               )}
+                              {/* Delete Button - Available for all events */}
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Are you sure you want to delete the event "${event.title}"? This action cannot be undone.`)) {
+                                    handleDeleteEvent(event.id);
+                                  }
+                                }}
+                                disabled={actionLoading === event.id}
+                                className="p-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-red-400 transition-colors disabled:opacity-50"
+                                title="Delete Event"
+                              >
+                                {actionLoading === event.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-4 h-4" />
+                                )}
+                              </button>
                             </div>
                           </td>
                         </tr>

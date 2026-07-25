@@ -19,6 +19,7 @@ import {
   Loader2,
   CheckCircle,
   Clock,
+  UserSearch,
 } from "lucide-react";
 import { useChat } from "@/hooks/useChat";
 
@@ -42,6 +43,7 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [recentChats, setRecentChats] = useState<any[]>([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -68,7 +70,7 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
     }
   }, [userId]);
 
-  // Load conversations on mount - only if authenticated
+  // Load conversations on mount
   useEffect(() => {
     if (userId && userId.length > 10 && !userId.startsWith('guest_')) {
       console.log("💬 Fetching conversations for user:", userId);
@@ -76,31 +78,30 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
     }
   }, [userId, fetchConversations]);
 
-  // Filter users based on search query - IMPROVED
+  // Filter users based on search query - ONLY show when searching
   useEffect(() => {
     if (!users || users.length === 0) {
       setFilteredUsers([]);
+      setShowSearchResults(false);
       return;
     }
 
     if (searchQuery.trim().length === 0) {
-      setFilteredUsers(users);
+      // Don't show any users when search is empty - privacy
+      setFilteredUsers([]);
+      setShowSearchResults(false);
       return;
     }
 
     const query = searchQuery.toLowerCase().trim();
     console.log("🔍 Searching for:", query);
-    console.log("👥 Total users:", users.length);
 
     const filtered = users.filter(user => {
       const fullName = (user.full_name || '').toLowerCase();
       const email = (user.email || '').toLowerCase();
       
-      // Check if query matches name or email
       const nameMatch = fullName.includes(query);
       const emailMatch = email.includes(query);
-      
-      // Also try matching by individual name parts (first name, last name)
       const nameParts = fullName.split(' ');
       const partMatch = nameParts.some((part: string) => part.includes(query));
       
@@ -109,11 +110,13 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
 
     console.log("✅ Search results:", filtered.length);
     setFilteredUsers(filtered);
+    setShowSearchResults(true);
   }, [searchQuery, users]);
 
-  // Safe User Directory Fetching - IMPROVED with better error handling
+  // Safe User Directory Fetching - ONLY fetch when search is triggered
   useEffect(() => {
-    if (showUserList && userId) {
+    // Only fetch users when the user starts typing in search
+    if (showUserList && searchQuery.trim().length >= 2) {
       const fetchUsers = async () => {
         setIsSearching(true);
         try {
@@ -125,7 +128,6 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
             .select('id, full_name, email, role')
             .order('full_name', { ascending: true });
           
-          // Exclude current user
           if (isUuid) {
             query = query.neq('id', userId);
           }
@@ -142,31 +144,33 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
 
           if (data) {
             console.log("✅ Users loaded:", data.length);
-            // Log first few users to verify data
-            if (data.length > 0) {
-              console.log("📋 Sample users:", data.slice(0, 3).map(u => ({ 
-                id: u.id, 
-                full_name: u.full_name, 
-                email: u.email 
-              })));
-            }
             setUsers(data);
-            setFilteredUsers(data);
-          } else {
-            setUsers([]);
-            setFilteredUsers([]);
+            // Apply filter immediately after loading
+            const queryLower = searchQuery.toLowerCase().trim();
+            const filtered = data.filter(user => {
+              const fullName = (user.full_name || '').toLowerCase();
+              const email = (user.email || '').toLowerCase();
+              return fullName.includes(queryLower) || 
+                     email.includes(queryLower) ||
+                     fullName.split(' ').some((part: string) => part.includes(queryLower));
+            });
+            setFilteredUsers(filtered);
+            setShowSearchResults(true);
           }
         } catch (error) {
           console.error("❌ Error fetching users:", error);
-          setUsers([]);
-          setFilteredUsers([]);
         } finally {
           setIsSearching(false);
         }
       };
       fetchUsers();
+    } else if (searchQuery.trim().length === 0) {
+      // Clear results when search is empty
+      setUsers([]);
+      setFilteredUsers([]);
+      setShowSearchResults(false);
     }
-  }, [showUserList, userId]);
+  }, [showUserList, searchQuery, userId]);
 
   // Don't render if no valid userId
   if (!userId || userId.length < 10 || userId.startsWith('guest_')) {
@@ -234,6 +238,9 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
     setSelectedUser(targetUser);
     setShowUserList(false);
     setSearchQuery("");
+    setUsers([]);
+    setFilteredUsers([]);
+    setShowSearchResults(false);
     
     const newConv = await createConversation([targetUser.id]);
     if (newConv) {
@@ -274,9 +281,8 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
 
   const totalUnread = conversations.reduce((acc, c) => acc + (c.unread_count || 0), 0);
 
-  // Get online status (mock - can be replaced with real presence)
+  // Get online status (mock)
   const isUserOnline = (userId: string) => {
-    // This is a mock - you can implement real presence tracking
     return Math.random() > 0.6;
   };
 
@@ -335,6 +341,8 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
                 setSelectedUser(null);
                 setShowUserList(false);
                 setSearchQuery("");
+                setUsers([]);
+                setFilteredUsers([]);
               }}
               className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
             >
@@ -346,6 +354,9 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
               setShowUserList(!showUserList);
               if (!showUserList) {
                 setSearchQuery("");
+                setUsers([]);
+                setFilteredUsers([]);
+                setShowSearchResults(false);
               }
             }}
             className={`p-1.5 rounded-lg transition-colors ${
@@ -373,9 +384,9 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
       {!isMinimized && (
         <div className="flex-1 flex flex-col min-h-0 bg-slate-900">
           {showUserList ? (
-            /* 1. USER LIST VIEW WITH SEARCH */
+            /* 1. USER LIST VIEW WITH SEARCH - PRIVACY FIRST */
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Search Bar */}
+              {/* Search Bar - Users only appear when searching */}
               <div className="p-3 border-b border-slate-800">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -384,51 +395,60 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by name or email..."
+                    placeholder="Search by name or email to find users..."
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500/50 transition-colors"
                   />
                   {isSearching && (
                     <Loader2 className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-cyan-400 animate-spin" />
                   )}
-                  {!isSearching && searchQuery && filteredUsers.length === 0 && (
+                  {!isSearching && searchQuery && filteredUsers.length === 0 && showSearchResults && (
                     <X 
                       className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 cursor-pointer hover:text-white"
                       onClick={() => setSearchQuery("")}
                     />
                   )}
                 </div>
-                {searchQuery && (
-                  <p className="text-xs text-slate-500 mt-1.5">
-                    Found {filteredUsers.length} result{filteredUsers.length !== 1 ? 's' : ''}
+                <div className="flex items-center justify-between mt-1.5">
+                  <p className="text-xs text-slate-500">
+                    {searchQuery.length >= 2 ? (
+                      showSearchResults ? (
+                        `Found ${filteredUsers.length} result${filteredUsers.length !== 1 ? 's' : ''}`
+                      ) : (
+                        'Type at least 2 characters to search'
+                      )
+                    ) : (
+                      <span className="flex items-center gap-1">
+                        <UserSearch className="w-3 h-3" />
+                        Search for users to start a conversation
+                      </span>
+                    )}
                   </p>
-                )}
+                  {searchQuery.length >= 2 && filteredUsers.length === 0 && showSearchResults && (
+                    <span className="text-xs text-amber-400">No users found</span>
+                  )}
+                </div>
               </div>
               
-              {/* User List */}
+              {/* User List - Only shows when searching */}
               <div className="flex-1 overflow-y-auto p-2 space-y-1">
                 {isSearching ? (
                   <div className="flex items-center justify-center p-8">
                     <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
                   </div>
+                ) : searchQuery.length < 2 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                    <UserSearch className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                    <p className="text-slate-400 text-sm">Search for users</p>
+                    <p className="text-slate-500 text-xs mt-1">Type a name or email to find people to chat with</p>
+                  </div>
                 ) : filteredUsers.length === 0 ? (
-                  <div className="text-center p-8">
-                    {searchQuery ? (
-                      <>
-                        <Search className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                        <p className="text-slate-400 text-sm">No users found matching "{searchQuery}"</p>
-                        <p className="text-slate-500 text-xs mt-1">Try a different name or email</p>
-                      </>
-                    ) : (
-                      <>
-                        <UserPlus className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                        <p className="text-slate-400 text-sm">No other users available</p>
-                        <p className="text-slate-500 text-xs mt-1">Invite others to join the platform</p>
-                      </>
-                    )}
+                  <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                    <User className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                    <p className="text-slate-400 text-sm">No users found</p>
+                    <p className="text-slate-500 text-xs mt-1">Try a different search term</p>
                   </div>
                 ) : (
                   filteredUsers.map((u) => {
-                    const isOnline = isUserOnline(u.id);
                     const hasRecentChat = conversations.some(c => 
                       c.participant_ids?.includes(u.id)
                     );
@@ -436,7 +456,8 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
                     // Highlight matching text in name
                     let displayName = u.full_name;
                     if (searchQuery) {
-                      const index = displayName.toLowerCase().indexOf(searchQuery.toLowerCase());
+                      const queryLower = searchQuery.toLowerCase();
+                      const index = displayName.toLowerCase().indexOf(queryLower);
                       if (index !== -1) {
                         const before = displayName.substring(0, index);
                         const match = displayName.substring(index, index + searchQuery.length);
@@ -463,7 +484,7 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
                           <div className="w-10 h-10 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 flex items-center justify-center text-white font-bold text-sm">
                             {u.full_name?.charAt(0).toUpperCase() || '?'}
                           </div>
-                          {isOnline && (
+                          {isUserOnline(u.id) && (
                             <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 rounded-full border-2 border-slate-900"></span>
                           )}
                         </div>
@@ -591,8 +612,20 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
           ) : (
             /* 3. RECENT ROOMS FEED VIEW */
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              <div className="px-3 py-2">
+              <div className="px-3 py-2 flex items-center justify-between">
                 <p className="text-xs text-slate-400 font-semibold">Recent Conversations</p>
+                <button
+                  onClick={() => {
+                    setShowUserList(true);
+                    setSearchQuery("");
+                    setUsers([]);
+                    setFilteredUsers([]);
+                  }}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors flex items-center gap-1"
+                >
+                  <UserPlus className="w-3 h-3" />
+                  New Chat
+                </button>
               </div>
               {loading ? (
                 <div className="flex items-center justify-center p-8">
@@ -602,7 +635,7 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
                 <div className="flex flex-col items-center justify-center p-8 text-center">
                   <MessageSquare className="w-12 h-12 text-slate-700 mb-3" />
                   <p className="text-slate-400 text-sm">No conversations yet</p>
-                  <p className="text-slate-500 text-xs mt-1">Click the <Users className="w-3 h-3 inline" /> icon to start a new chat</p>
+                  <p className="text-slate-500 text-xs mt-1">Click <UserPlus className="w-3 h-3 inline" /> to start a new chat</p>
                 </div>
               ) : (
                 conversations.map((conv) => {
@@ -636,6 +669,9 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
                           {conv.last_message || 'No messages'}
                         </p>
                       </div>
+                      {unread > 0 && (
+                        <div className="w-2 h-2 rounded-full bg-cyan-400 flex-shrink-0"></div>
+                      )}
                     </button>
                   );
                 })
