@@ -6,6 +6,7 @@ class ChatService {
   private isCleanedUp = false;
   private activeChatChannels: Set<string> = new Set();
   private unreadCountCache: Map<string, number> = new Map();
+  private userCacheMap: Map<string, Set<string>> = new Map(); // Track which cache entries belong to which user
 
   private constructor() {
     // Remove guest chat support
@@ -43,6 +44,19 @@ class ChatService {
 
   public resetUnreadCount(conversationId: string): void {
     this.unreadCountCache.delete(conversationId);
+  }
+
+  // Clear cache for a specific user
+  public clearUserCache(userId: string): void {
+    console.log(`🧹 Clearing chat cache for user: ${userId}`);
+    // Reset all unread counts
+    this.unreadCountCache.clear();
+  }
+
+  // Clear all cache
+  public clearAllCache(): void {
+    console.log('🧹 Clearing all chat cache');
+    this.unreadCountCache.clear();
   }
 
   public async cleanup(): Promise<void> {

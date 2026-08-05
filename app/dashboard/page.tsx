@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { chatService } from '@/lib/chat-service';
 import { AdvocacyWidget } from "@/components/dashboard/AdvocacyWidget";
 import { AlertsWidget } from "@/components/AlertsWidget";
 import { supabase } from "@/lib/supabase";
@@ -397,6 +398,7 @@ export default function DashboardPage() {
   const logout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    chatService.clearAllCache();
     router.push("/login");
   };
 

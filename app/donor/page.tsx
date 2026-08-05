@@ -4,6 +4,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { chatService } from '@/lib/chat-service';
 import { GovernanceAlertsWidget } from "@/components/GovernanceAlertsWidget";
 import {
   DollarSign,
@@ -372,6 +373,7 @@ export default function DonorDashboard() {
       localStorage.removeItem("user");
       localStorage.removeItem("session");
       localStorage.removeItem("token");
+      chatService.clearAllCache();
       await supabase.auth.signOut();
       router.push("/login");
     } catch (error) {

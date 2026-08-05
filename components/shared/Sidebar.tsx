@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
+import { chatService } from '@/lib/chat-service';
 import {
   LayoutDashboard,
   Globe,
@@ -582,6 +583,7 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       localStorage.removeItem("user");
       localStorage.removeItem("session");
       localStorage.removeItem("token");
+      chatService.clearAllCache();
       
       document.cookie = "auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
       

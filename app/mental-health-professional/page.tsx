@@ -789,7 +789,7 @@ export default function MentalHealthProfessionalDashboard() {
                       <p className="text-white font-medium">{country}</p>
                       <p className="text-slate-400 text-xs">Mental Health Report Q4 2024</p>
                     </div>
-                    <Link href={`/country-reports/${country}`} className="text-cyan-400 hover:text-cyan-300 text-sm">
+                    <Link href={`/countries/${country}`} className="text-cyan-400 hover:text-cyan-300 text-sm">
                       View Report →
                     </Link>
                   </div>

@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { chatService } from '@/lib/chat-service';
 import { useRouter } from "next/navigation";
 import { AlertsWidget } from "@/components/AlertsWidget";
 import { GovernanceAlertsWidget } from "@/components/GovernanceAlertsWidget";
@@ -255,6 +256,7 @@ export default function ResearcherDashboard() {
       localStorage.removeItem("user");
       localStorage.removeItem("session");
       localStorage.removeItem("token");
+      chatService.clearAllCache();
       await supabase.auth.signOut();
       router.push("/login");
     } catch (error) {

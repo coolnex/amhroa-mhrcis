@@ -199,6 +199,27 @@ export function ChatWidget({ userId, userRole, recipientId, recipientName }: Cha
     }
   }, [showUserList]);
 
+  // Inside ChatWidget.tsx, add this after the existing useEffects
+
+// Refresh unread counts when widget opens
+useEffect(() => {
+  if (isOpen && userId && userId.length > 10 && !userId.startsWith('guest_')) {
+    // Refresh conversations when widget opens
+    fetchConversations();
+  }
+}, [isOpen, userId, fetchConversations]);
+
+// Also refresh when the user becomes active
+useEffect(() => {
+  if (userId && userId.length > 10 && !userId.startsWith('guest_')) {
+    // Refresh after a short delay to ensure everything is loaded
+    const timer = setTimeout(() => {
+      fetchConversations();
+    }, 1000);
+    return () => clearTimeout(timer);
+  }
+}, [userId]);
+
   const handleSendMessage = async () => {
     if (!message.trim() && !fileInputRef.current?.files?.length) return;
 

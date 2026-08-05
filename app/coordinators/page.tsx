@@ -4,6 +4,7 @@
 import { Brain, Gavel, Scale, Users as UsersIcon, Activity, Pill, Stethoscope } from "lucide-react";
 import { useTrackerSurveys } from '@/hooks/useTrackerSurveys';
 import { AlertsWidget } from "@/components/AlertsWidget";
+import { chatService } from '@/lib/chat-service';
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -777,6 +778,7 @@ const fetchWorkforceData = async (country: string) => {
       localStorage.removeItem("user");
       localStorage.removeItem("session");
       localStorage.removeItem("token");
+      chatService.clearAllCache();
       await supabase.auth.signOut();
       router.push("/login");
     } catch (error) {
