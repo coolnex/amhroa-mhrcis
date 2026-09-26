@@ -107,28 +107,10 @@ export default function FundingRequestsPage() {
   });
 
   useEffect(() => {
-    checkUser();
     fetchRequests();
   }, []);
 
-  const checkUser = async () => {
-    const token = localStorage.getItem("token");
-    const userStr = localStorage.getItem("user");
-
-    if (!token || !userStr) {
-      router.push("/login");
-      return;
-    }
-
-    try {
-      const userData = JSON.parse(userStr);
-      setUser(userData);
-      setUserRole(userData.role || "");
-    } catch (error) {
-      console.error("Error parsing user data:", error);
-      router.push("/login");
-    }
-  };
+  
 
   const fetchRequests = async () => {
     setLoading(true);

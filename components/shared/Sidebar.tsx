@@ -141,6 +141,27 @@ const roleDisplayNames: Record<UserRole, string> = {
   admin_coordinator: "Administrator & Country Coordinator",
 };
 
+// Dashboard route per role — used by the clickable user badge
+const roleDashboardPaths: Record<UserRole, string> = {
+  Admin: "/admin",
+  Policymaker: "/policymaker",
+  Researcher: "/researcher",
+  CSO: "/cso",
+  Coordinator: "/coordinators",
+  Regional_Executive: "/regional-executive",
+  Donor: "/donor",
+  Mental_Health_Professional: "/mental-health-professional",
+  public: "/public",
+
+  // Combined coordinator roles → coordinator dashboard
+  policymaker_coordinator: "/coordinators",
+  researcher_coordinator: "/coordinators",
+  mental_health_coordinator: "/coordinators",
+  cso_coordinator: "/coordinators",
+  donor_coordinator: "/coordinators",
+  admin_coordinator: "/admin",
+};
+
 // Role badges
 const roleBadges: Record<UserRole, { color: string; bg: string }> = {
   Admin: { color: "text-purple-400", bg: "bg-purple-500/20" },
@@ -232,11 +253,13 @@ const navigationGroups = {
     icon: DollarSign,
     roles: ["Admin", "admin_coordinator", "donor", "donor_coordinator"],
     links: [
-      { name: "Donor Dashboard", href: "/donor", icon: Award },
-      { name: "Funding Requests", href: "/funding-requests", icon: Target },
+      {
+        name: "Post Opportunity",
+        href: "/admin/opportunities",
+        icon: Briefcase,
+      },
       { name: "Research Sponsorships", href: "/research-sponsorships", icon: Briefcase },
       { name: "Impact Reports", href: "/impact-reports", icon: FileText },
-      { name: "Donor Intelligence", href: "/donor-intelligence", icon: TrendingUp },
       { name: "Investment Portfolio", href: "/investment-portfolio", icon: TrendingUp },
     ],
   },
@@ -737,19 +760,32 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
 
       {/* User Role Indicator with Notification Bell */}
       {!collapsed && (
-        <div className="mx-4 mt-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700 flex-shrink-0">
+        <div className="mx-4 mt-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700 hover:border-cyan-500/40 transition-colors flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full ${roleBadge.bg} flex items-center justify-center flex-shrink-0`}>
-              <span className={`text-white font-bold text-sm ${roleBadge.color}`}>
-                {getUserInitials()}
-              </span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-semibold truncate">{userName || roleDisplay}</p>
-              <p className={`text-xs ${roleBadge.color} truncate`}>{roleDisplay}</p>
-            </div>
-            {/* Notification Bell */}
-            <div className="relative" ref={notificationRef}>
+            {/* Clickable user badge → role dashboard */}
+            <Link
+              href={roleDashboardPaths[userRole] || "/dashboard"}
+              className="flex items-center gap-3 flex-1 min-w-0 group"
+              title={`Go to ${roleDisplay}`}
+            >
+              <div className={`w-10 h-10 rounded-full ${roleBadge.bg} flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform`}>
+                <span className={`text-white font-bold text-sm ${roleBadge.color}`}>
+                  {getUserInitials()}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-semibold truncate">
+                  {userName || roleDisplay}
+                </p>
+                <p className={`text-xs ${roleBadge.color} truncate group-hover:underline`}>
+                  {roleDisplay}
+                </p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" />
+            </Link>
+
+            {/* Notification Bell — outside the Link so it doesn't navigate */}
+            <div className="relative flex-shrink-0" ref={notificationRef}>
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
                 className="relative p-2 hover:bg-slate-700 rounded-lg transition-colors"
@@ -766,8 +802,9 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                 )}
               </button>
 
-              {/* Notification Dropdown */}
+              {/* Notification Dropdown — keep your existing dropdown code unchanged */}
               {showNotifications && (
+
                 <div className="absolute right-0 top-full mt-2 w-96 max-h-[500px] overflow-hidden bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl z-50">
                   <div className="p-4 border-b border-slate-700 flex justify-between items-center">
                     <div>
@@ -883,6 +920,21 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
             </div>
           </div>
         </div>
+      )}
+      {/* Collapsed user badge — clickable */}
+      {collapsed && (
+        <Link
+          href={roleDashboardPaths[userRole] || "/dashboard"}
+          className="mx-2 mt-4 p-2 flex justify-center rounded-xl hover:bg-slate-800/60 transition-colors group"
+          title={`Go to ${roleDisplay}`}
+        >
+          <div className={`w-10 h-10 rounded-full ${roleBadge.bg} flex items-center justify-center relative group-hover:scale-105 transition-transform`}>
+            <span className={`text-white font-bold text-sm ${roleBadge.color}`}>
+              {getUserInitials()}
+            </span>
+            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900"></div>
+          </div>
+        </Link>
       )}
 
       {/* Navigation - Scrollable with custom scrollbar */}

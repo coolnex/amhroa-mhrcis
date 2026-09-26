@@ -4,6 +4,7 @@
 import { supabase } from "@/lib/supabase";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { chatService } from '@/lib/chat-service';
 import { africanCountries, getCountryByName } from "@/lib/countries-data";
 import {
   Shield,
@@ -1159,7 +1160,7 @@ export default function AdminDashboard() {
       localStorage.removeItem("user");
       localStorage.removeItem("session");
       localStorage.removeItem("token");
-      
+      chatService.clearAllCache();
       // Sign out from Supabase
       await supabase.auth.signOut();
       router.push("/login");

@@ -21,7 +21,7 @@ import {
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [step, setStep] = useState<"email" | "reset" | "success">("email");
+  const [step, setStep] = useState<"email" | "sent" | "reset" | "success">("email");
   const [email, setEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -29,112 +29,107 @@ function ResetPasswordForm() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checkingEmail, setCheckingEmail] = useState(false);
-  const [initialCheckDone, setInitialCheckDone] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [sessionReady, setSessionReady] = useState(false);
 
-  const cleanAndValidateEmail = (rawEmail: string): string | null => {
-    try {
-      let decoded = rawEmail;
-      while (decoded.includes("%")) {
+  // ============================================================
+  // STEP 1: Detect if user arrived via Supabase reset link
+  // Supabase appends #access_token=...&type=recovery to the URL
+  // The onAuthStateChange listener will fire with PASSWORD_RECOVERY
+  // ============================================================
+  useEffect(() => {
+    let mounted = true;
+
+    const checkSession = async () => {
+      // Check if there's a code in the URL (PKCE flow) or hash (implicit flow)
+      const code = searchParams.get("code");
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+
+      // Handle PKCE flow: exchange code for session
+      if (code) {
         try {
-          const newDecoded = decodeURIComponent(decoded);
-          if (newDecoded === decoded) break;
-          decoded = newDecoded;
-        } catch {
-          break;
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            console.error("Code exchange error:", error);
+            if (mounted) {
+              setError("Invalid or expired reset link. Please request a new one.");
+              setStep("email");
+            }
+          } else if (data.session) {
+            console.log("✅ Session established via PKCE code");
+            if (mounted) {
+              setSessionReady(true);
+              setStep("reset");
+            }
+          }
+        } catch (err) {
+          console.error("Exchange error:", err);
+        } finally {
+          if (mounted) setCheckingSession(false);
+        }
+        return;
+      }
+
+      // Handle implicit flow: tokens in the hash
+      if (hash && hash.includes("access_token")) {
+        // Supabase client automatically picks this up via onAuthStateChange
+        // We just wait for the event below
+        console.log("🔗 Hash contains access_token, waiting for auth event...");
+      }
+
+      // Check if user already has a valid session (e.g., from a recovery link)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (mounted) {
+        if (session) {
+          console.log("✅ Existing session found");
+          setSessionReady(true);
+          setStep("reset");
+        }
+        setCheckingSession(false);
+      }
+    };
+
+    checkSession();
+
+    // Listen for Supabase auth events — this fires PASSWORD_RECOVERY
+    // when the user clicks the reset link in their email
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log("🔔 Auth event:", event);
+        
+        if (event === "PASSWORD_RECOVERY" && session) {
+          console.log("✅ PASSWORD_RECOVERY event — user can now set a new password");
+          if (mounted) {
+            setSessionReady(true);
+            setStep("reset");
+            setError(null);
+          }
+        }
+        
+        if (event === "SIGNED_IN" && session && mounted) {
+          // Could also be from a recovery link
+          const hash = window.location.hash;
+          if (hash.includes("type=recovery")) {
+            setSessionReady(true);
+            setStep("reset");
+          }
         }
       }
-      
-      const cleanEmail = decoded.trim().toLowerCase();
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      
-      return emailRegex.test(cleanEmail) ? cleanEmail : null;
-    } catch {
-      return null;
-    }
-  };
+    );
 
-  const checkUserExists = async (emailToCheck: string) => {
-    try {
-      console.log("🔍 Checking if user exists:", emailToCheck);
-      
-      // First check if user exists in auth.users
-      const { data: authUsers, error: authError } = await supabase
-        .from('auth.users')
-        .select('id, email')
-        .eq('email', emailToCheck);
-      
-      if (authError) {
-        console.error("Auth check error:", authError);
-      }
-      
-      // Check if user exists in public.users table
-      const { data: user, error: userError } = await supabase
-        .from("users")
-        .select("id, full_name, email, auth_user_id")
-        .eq("email", emailToCheck)
-        .single();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [searchParams]);
 
-      if (userError || !user) {
-        console.log("❌ User not found in public.users");
-        return null;
-      }
-
-      console.log("✅ User found:", user);
-      return user;
-    } catch (err) {
-      console.error("Error checking user:", err);
-      return null;
-    }
-  };
-
-  const handleCheckEmailDirect = useCallback(async (emailToCheck: string) => {
-    setCheckingEmail(true);
-    setError(null);
-
-    const emailValue = cleanAndValidateEmail(emailToCheck);
-    if (!emailValue) {
-      setError("The email provided in the link is invalid.");
-      setCheckingEmail(false);
-      setInitialCheckDone(true);
-      return;
-    }
-
-    setEmail(emailValue);
-
-    const user = await checkUserExists(emailValue);
-    
-    if (user) {
-      setStep("reset");
-    } else {
-      setError("No account found with this email address. Please check and try again.");
-    }
-    
-    setCheckingEmail(false);
-    setInitialCheckDone(true);
-  }, []);
-
-  useEffect(() => {
-    if (initialCheckDone) return;
-    
-    const emailParam = searchParams.get("email");
-    if (emailParam && !initialCheckDone) {
-      handleCheckEmailDirect(emailParam);
-    } else {
-      setInitialCheckDone(true);
-    }
-  }, [searchParams, handleCheckEmailDirect, initialCheckDone]);
-
-  const handleCheckEmail = async (e: React.FormEvent) => {
+  // ============================================================
+  // STEP 2: Send reset email
+  // ============================================================
+  const handleSendResetEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
-
-    if (!email) {
-      setError("Please enter your email address");
-      setLoading(false);
-      return;
-    }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
@@ -143,44 +138,73 @@ function ResetPasswordForm() {
       return;
     }
 
-    const user = await checkUserExists(email);
-    
-    if (user) {
-      setStep("reset");
-    } else {
-      setError("No account found with this email address");
+    try {
+      const redirectUrl = `${window.location.origin}/reset-password`;
+
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: redirectUrl,
+      });
+
+      if (error) {
+        console.error("Reset email error:", error);
+        // Don't reveal whether the email exists (security best practice)
+        // but still show a message
+        setError(error.message);
+        setLoading(false);
+        return;
+      }
+
+      console.log("✅ Reset email sent");
+      setStep("sent");
+    } catch (err) {
+      console.error("Unexpected error:", err);
+      setError("An unexpected error occurred. Please try again.");
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
+  // ============================================================
+  // STEP 3: Set new password (user now has a session from email link)
+  // ============================================================
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
-  
+
     if (!newPassword || !confirmPassword) {
       setError("Please fill in all fields");
       setLoading(false);
       return;
     }
-  
+
     if (newPassword !== confirmPassword) {
       setError("Passwords do not match");
       setLoading(false);
       return;
     }
-  
+
     if (newPassword.length < 6) {
       setError("Password must be at least 6 characters");
       setLoading(false);
       return;
     }
-  
+
     try {
-      // Update password using Supabase Auth
+      // Verify we actually have a session before attempting update
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        setError(
+          "Your reset link has expired or is invalid. Please request a new password reset email."
+        );
+        setStep("email");
+        setLoading(false);
+        return;
+      }
+
       const { error: updateError } = await supabase.auth.updateUser({
-        password: newPassword
+        password: newPassword,
       });
 
       if (updateError) {
@@ -190,7 +214,10 @@ function ResetPasswordForm() {
         return;
       }
 
-      console.log("✅ Password updated successfully for user");
+      console.log("✅ Password updated successfully");
+      
+      // Sign out so user logs in fresh with new password
+      await supabase.auth.signOut();
       
       setStep("success");
       setTimeout(() => {
@@ -204,6 +231,23 @@ function ResetPasswordForm() {
     }
   };
 
+  // ============================================================
+  // RENDER: Loading session check
+  // ============================================================
+  if (checkingSession) {
+    return (
+      <div className="max-w-md w-full">
+        <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-8 text-center">
+          <Loader2 className="w-10 h-10 text-cyan-400 animate-spin mx-auto mb-4" />
+          <p className="text-slate-300">Verifying reset link...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // RENDER: Success
+  // ============================================================
   if (step === "success") {
     return (
       <div className="max-w-md w-full">
@@ -222,19 +266,49 @@ function ResetPasswordForm() {
     );
   }
 
-  if (checkingEmail) {
+  // ============================================================
+  // RENDER: Email sent confirmation
+  // ============================================================
+  if (step === "sent") {
     return (
       <div className="max-w-md w-full">
         <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-8 text-center">
-          <div className="flex flex-col items-center justify-center">
-            <Loader2 className="w-10 h-10 text-cyan-400 animate-spin mb-4" />
-            <p className="text-slate-300">Verifying your account...</p>
+          <div className="bg-cyan-500/20 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Mail className="w-10 h-10 text-cyan-400" />
           </div>
+          <h2 className="text-2xl font-bold text-white mb-3">Check Your Email</h2>
+          <p className="text-slate-300 mb-2">
+            We've sent a password reset link to:
+          </p>
+          <p className="text-cyan-400 font-medium mb-4">{email}</p>
+          <p className="text-slate-400 text-sm mb-6">
+            Click the link in the email to set a new password. The link expires in 1 hour.
+          </p>
+          <p className="text-slate-500 text-xs mb-6">
+            Didn't receive the email? Check your spam folder or{" "}
+            <button
+              onClick={() => {
+                setStep("email");
+                setError(null);
+              }}
+              className="text-cyan-400 hover:text-cyan-300 underline"
+            >
+              try again
+            </button>
+            .
+          </p>
+          <Link href="/login" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
+            <ArrowLeft className="w-4 h-4" />
+            Back to Login
+          </Link>
         </div>
       </div>
     );
   }
 
+  // ============================================================
+  // RENDER: Main form (email step OR reset step)
+  // ============================================================
   return (
     <div className="max-w-md w-full">
       <div className="text-center mb-8">
@@ -242,25 +316,25 @@ function ResetPasswordForm() {
           <Shield className="w-8 h-8 text-white" />
         </div>
         <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-          {step === "email" ? "Reset Password" : "Set New Password"}
+          {step === "reset" ? "Set New Password" : "Reset Password"}
         </h1>
         <p className="text-slate-400 mt-2">
-          {step === "email" 
-            ? "Enter your email address to reset your password"
-            : `Create a new password`}
+          {step === "reset"
+            ? "Create a new password for your account"
+            : "Enter your email address to reset your password"}
         </p>
       </div>
 
       <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-8">
         {error && (
           <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-red-400" />
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
             <p className="text-red-400 text-sm">{error}</p>
           </div>
         )}
 
         {step === "email" ? (
-          <form onSubmit={handleCheckEmail} className="space-y-5">
+          <form onSubmit={handleSendResetEmail} className="space-y-5">
             <div>
               <label className="text-slate-400 text-sm block mb-2">Email Address</label>
               <div className="relative">
@@ -270,7 +344,7 @@ function ResetPasswordForm() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-11 pr-4 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-11 pr-4 py-3 text-white focus:outline-none focus:border-cyan-500"
                   placeholder="you@example.com"
                 />
               </div>
@@ -282,11 +356,17 @@ function ResetPasswordForm() {
               className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 rounded-xl text-white font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-              {loading ? "Checking..." : "Continue"}
+              {loading ? "Sending..." : "Send Reset Link"}
             </button>
           </form>
         ) : (
           <form onSubmit={handleResetPassword} className="space-y-5">
+            <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl mb-2">
+              <p className="text-cyan-400 text-xs">
+                ✅ Reset link verified. Please enter your new password below.
+              </p>
+            </div>
+
             <div>
               <label className="text-slate-400 text-sm block mb-2">New Password</label>
               <div className="relative">
@@ -296,7 +376,7 @@ function ResetPasswordForm() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-11 pr-11 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-11 pr-11 py-3 text-white focus:outline-none focus:border-cyan-500"
                   placeholder="Enter new password"
                 />
                 <button
@@ -304,7 +384,11 @@ function ResetPasswordForm() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4 text-slate-400" /> : <Eye className="w-4 h-4 text-slate-400" />}
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4 text-slate-400" />
+                  ) : (
+                    <Eye className="w-4 h-4 text-slate-400" />
+                  )}
                 </button>
               </div>
               <p className="text-slate-500 text-xs mt-1">Must be at least 6 characters</p>
@@ -319,7 +403,7 @@ function ResetPasswordForm() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-11 pr-11 py-3 text-white"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-xl pl-11 pr-11 py-3 text-white focus:outline-none focus:border-cyan-500"
                   placeholder="Confirm new password"
                 />
                 <button
@@ -327,7 +411,11 @@ function ResetPasswordForm() {
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2"
                 >
-                  {showConfirmPassword ? <EyeOff className="w-4 h-4 text-slate-400" /> : <Eye className="w-4 h-4 text-slate-400" />}
+                  {showConfirmPassword ? (
+                    <EyeOff className="w-4 h-4 text-slate-400" />
+                  ) : (
+                    <Eye className="w-4 h-4 text-slate-400" />
+                  )}
                 </button>
               </div>
             </div>
@@ -344,7 +432,10 @@ function ResetPasswordForm() {
         )}
 
         <div className="mt-6 text-center">
-          <Link href="/login" className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors">
+          <Link
+            href="/login"
+            className="inline-flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors"
+          >
             <ArrowLeft className="w-4 h-4" />
             Back to Login
           </Link>
@@ -370,12 +461,14 @@ export default function ResetPasswordPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 flex flex-col">
       <div className="flex-1 flex items-center justify-center p-6">
-        <Suspense fallback={
-          <div className="text-center">
-            <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-slate-400 mt-2">Loading...</p>
-          </div>
-        }>
+        <Suspense
+          fallback={
+            <div className="text-center">
+              <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+              <p className="text-slate-400 mt-2">Loading...</p>
+            </div>
+          }
+        >
           <ResetPasswordForm />
         </Suspense>
       </div>

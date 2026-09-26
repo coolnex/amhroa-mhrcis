@@ -45,9 +45,21 @@ export function useChat(userId: string) {
   const channelRef = useRef<any>(null);
   const isSubscribedRef = useRef<boolean>(false);
   const isFetchingRef = useRef<boolean>(false);
+  const mountedRef = useRef<boolean>(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     userIdRef.current = userId;
+    
+    // Reset chat service when userId changes (e.g., new login)
+    if (userId && isValidUUID(userId)) {
+      // Clear cache for this user
+      chatService.clearUserCache(userId);
+    }
+    
+    return () => {
+      mountedRef.current = false;
+    };
   }, [userId]);
 
   const fetchConversations = useCallback(async () => {
@@ -77,38 +89,41 @@ export function useChat(userId: string) {
 
       if (error) throw error;
 
-      // Get unread counts from cache first
+      if (!mountedRef.current) return;
+
+      // Get unread counts from database directly (don't use cache for initial load)
       const conversationsWithCounts = await Promise.all(
         (convs || []).map(async (conv) => {
-          // Check cache first
-          let unreadCount = chatService.getUnreadCount(conv.id);
-          
-          // If not in cache, fetch from database
-          if (unreadCount === undefined) {
-            const { count, error: countError } = await supabase
-              .from('chat_messages')
-              .select('*', { count: 'exact', head: true })
-              .eq('conversation_id', conv.id)
-              .eq('is_read', false)
-              .neq('sender_id', currentUserId);
+          // Always fetch from database on initial load
+          const { count, error: countError } = await supabase
+            .from('chat_messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('conversation_id', conv.id)
+            .eq('is_read', false)
+            .neq('sender_id', currentUserId);
 
-            unreadCount = countError ? 0 : count || 0;
-            
-            // Cache the result
-            if (unreadCount > 0) {
-              chatService.setUnreadCount(conv.id, unreadCount);
-            }
+          const unreadCount = countError ? 0 : count || 0;
+          
+          // Update cache
+          if (unreadCount > 0) {
+            chatService.setUnreadCount(conv.id, unreadCount);
+          } else {
+            chatService.resetUnreadCount(conv.id);
           }
 
           return { ...conv, unread_count: unreadCount };
         })
       );
 
-      setConversations(conversationsWithCounts);
+      if (mountedRef.current) {
+        setConversations(conversationsWithCounts);
+      }
     } catch (error) {
       console.error('Error fetching conversations:', error);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
       isFetchingRef.current = false;
     }
   }, []);
@@ -159,7 +174,6 @@ export function useChat(userId: string) {
         // Update unread count ONLY if the message is from someone else
         // AND the conversation is not currently active
         if (newMessage.sender_id !== currentUserId) {
-          // Use chatService to manage unread counts
           const shouldIncrement = activeConversation !== newMessage.conversation_id;
           
           if (shouldIncrement) {
@@ -181,6 +195,50 @@ export function useChat(userId: string) {
             ? { ...c, last_message: newMessage.message, last_message_at: newMessage.created_at }
             : c
         ));
+      }
+    );
+
+    // Also listen for updates to messages (for when they're marked as read)
+    chatChannel.on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'chat_messages'
+      },
+      (payload) => {
+        const updatedMessage = payload.new as Message;
+        
+        // If a message was marked as read, update the unread count
+        if (updatedMessage.is_read && updatedMessage.sender_id !== currentUserId) {
+          // Refresh the unread count for this conversation
+          const conversationId = updatedMessage.conversation_id;
+          
+          // Check if all messages in this conversation are now read
+          const refreshUnreadCount = async () => {
+            const { count, error } = await supabase
+              .from('chat_messages')
+              .select('*', { count: 'exact', head: true })
+              .eq('conversation_id', conversationId)
+              .eq('is_read', false)
+              .neq('sender_id', currentUserId);
+            
+            if (!error) {
+              const newCount = count || 0;
+              if (newCount === 0) {
+                chatService.resetUnreadCount(conversationId);
+              } else {
+                chatService.setUnreadCount(conversationId, newCount);
+              }
+              
+              setConversations(prev => prev.map(c => 
+                c.id === conversationId ? { ...c, unread_count: newCount } : c
+              ));
+            }
+          };
+          
+          refreshUnreadCount();
+        }
       }
     );
 
@@ -206,6 +264,29 @@ export function useChat(userId: string) {
     if (!conversationId || !currentUserId) return;
   
     try {
+      // First, get all unread messages from others
+      const { data: unreadMessages, error: fetchError } = await supabase
+        .from('chat_messages')
+        .select('id')
+        .eq('conversation_id', conversationId)
+        .eq('is_read', false)
+        .neq('sender_id', currentUserId);
+
+      if (fetchError) {
+        console.error('Error fetching unread messages:', fetchError);
+        return;
+      }
+
+      if (!unreadMessages || unreadMessages.length === 0) {
+        // No unread messages, just reset cache
+        chatService.resetUnreadCount(conversationId);
+        setConversations(prev => prev.map(c => 
+          c.id === conversationId ? { ...c, unread_count: 0 } : c
+        ));
+        return;
+      }
+
+      // Mark them as read
       const { error } = await supabase
         .from('chat_messages')
         .update({ is_read: true, read_at: new Date().toISOString() })
@@ -259,10 +340,12 @@ export function useChat(userId: string) {
 
       if (error) throw error;
 
-      setMessages(prev => ({
-        ...prev,
-        [conversationId]: data || []
-      }));
+      if (mountedRef.current) {
+        setMessages(prev => ({
+          ...prev,
+          [conversationId]: data || []
+        }));
+      }
 
       // Mark messages as read when fetching
       await markMessagesAsRead(conversationId, currentUserId);
@@ -415,6 +498,42 @@ export function useChat(userId: string) {
     }
   }, []);
 
+  // Refresh unread counts (useful after login)
+  const refreshUnreadCounts = useCallback(async () => {
+    const currentUserId = userIdRef.current;
+    if (!currentUserId || !isValidUUID(currentUserId)) return;
+
+    try {
+      const updatedConversations = await Promise.all(
+        conversations.map(async (conv) => {
+          const { count, error } = await supabase
+            .from('chat_messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('conversation_id', conv.id)
+            .eq('is_read', false)
+            .neq('sender_id', currentUserId);
+
+          const unreadCount = error ? 0 : count || 0;
+          
+          // Update cache
+          if (unreadCount > 0) {
+            chatService.setUnreadCount(conv.id, unreadCount);
+          } else {
+            chatService.resetUnreadCount(conv.id);
+          }
+
+          return { ...conv, unread_count: unreadCount };
+        })
+      );
+
+      if (mountedRef.current) {
+        setConversations(updatedConversations);
+      }
+    } catch (error) {
+      console.error('Error refreshing unread counts:', error);
+    }
+  }, [conversations]);
+
   return {
     conversations,
     messages,
@@ -424,6 +543,7 @@ export function useChat(userId: string) {
     fetchConversations,
     fetchMessages,
     sendMessage,
-    createConversation
+    createConversation,
+    refreshUnreadCounts
   };
 }

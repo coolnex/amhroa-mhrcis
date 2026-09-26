@@ -445,7 +445,7 @@ export default function FieldReportsPage() {
   };
 
   const handleGoToRepository = () => {
-    router.push("/data-collection/repository");
+    router.push("/repository");
   };
 
   const filteredReports = useMemo(() => {

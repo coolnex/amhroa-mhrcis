@@ -17,8 +17,8 @@ export default function TermsPage() {
             <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
               Terms and Conditions
             </h1>
-            <p className="text-slate-400 mt-4">Effective Date: June 12, 2024</p>
-            <p className="text-slate-400">Last Updated: June 12, 2024</p>
+            <p className="text-slate-400 mt-4">Effective Date: June 12, 2025</p>
+            <p className="text-slate-400">Last Updated: June 12, 2025</p>
           </div>
         </div>
       </div>
@@ -259,7 +259,7 @@ export default function TermsPage() {
               By using AMHROA, you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions.
             </p>
             <p className="text-slate-500 text-xs mt-2">
-              © 2024 AMHROA. All rights reserved.
+              © 2025 AMHROA. All rights reserved.
             </p>
           </div>
         </div>

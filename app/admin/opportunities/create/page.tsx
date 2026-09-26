@@ -117,7 +117,9 @@ export default function CreateOpportunityPage() {
       
       if (userStr) {
         const userData = JSON.parse(userStr);
-        if (userData.role === "Admin" && userData.status === "Approved") {
+        const allowedRoles = ["Admin", "Donor", "donor", "donor_coordinator"];
+
+        if (allowedRoles.includes(userData.role) && userData.status === "Approved") {
           setUser(userData);
           setIsAuthorized(true);
           setLoading(false);
@@ -131,13 +133,14 @@ export default function CreateOpportunityPage() {
         return;
       }
 
+      const allowedRoles = ["Admin", "Donor", "donor", "donor_coordinator"];
       const { data: userData, error } = await supabase
         .from("users")
         .select("*")
         .eq("id", session.user.id)
         .single();
 
-      if (error || !userData || userData.role !== "Admin") {
+      if (error || !userData || !allowedRoles.includes(userData.role)) {
         router.push("/dashboard");
         return;
       }

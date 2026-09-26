@@ -1,12 +1,10 @@
-// app/mental-health-professional/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { AlertsWidget } from "@/components/AlertsWidget";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { GovernanceAlertsWidget } from "@/components/GovernanceAlertsWidget";
-import Link from "next/link";
 import {
   Brain,
   Users,
@@ -22,35 +20,38 @@ import {
   Mail,
   Phone,
   MapPin,
-  Settings,
-  LogOut,
   RefreshCw,
   Plus,
   Eye,
-  Edit,
-  Trash2,
   Award,
   Heart,
   Briefcase,
   BookOpen,
   Handshake,
   Megaphone,
-  BarChart3,
   UserPlus,
-  MessageCircle,
   Video,
-  Newspaper,
   Shield,
   Stethoscope,
   Microscope,
   Sparkles,
-  LineChart,
-  PieChart,
   LayoutDashboard,
-  TrendingDown,
-  Minus,
+  Loader2,
+  ChevronRight,
+  ArrowRight,
+  Activity,
+  GraduationCap,
+  HeartHandshake,
+  Users2,
+  Bookmark,
+  Send,
+  ExternalLink,
+  Star,
 } from "lucide-react";
 
+// ============================================================
+// Types
+// ============================================================
 interface WorkingGroup {
   id: string;
   name: string;
@@ -59,8 +60,6 @@ interface WorkingGroup {
   members: number;
   status: "Active" | "Pending" | "Completed";
   progress: number;
-  next_meeting: string;
-  created_by: string;
   created_at: string;
 }
 
@@ -88,63 +87,158 @@ interface ResearchProject {
   end_date: string;
 }
 
-interface Event {
+interface EventItem {
   id: string;
   title: string;
   description: string;
-  date: string;
-  type: "Conference" | "Webinar" | "Meeting" | "Workshop";
-  attendees: number;
-  location: string;
+  start_date: string;
+  end_date?: string;
+  event_type: string;
+  capacity?: number;
+  registered_count?: number;
+  location?: string;
+  country?: string;
+  is_virtual?: boolean;
   meeting_link?: string;
 }
 
+type TabKey =
+  | "overview"
+  | "working-groups"
+  | "advocacy"
+  | "research"
+  | "events";
+
+// ============================================================
+// Accent palette
+// ============================================================
+const ACCENTS: Record<
+  string,
+  { bg: string; text: string; border: string; glow: string }
+> = {
+  rose: {
+    bg: "bg-rose-500/10",
+    text: "text-rose-400",
+    border: "border-rose-500/20",
+    glow: "from-rose-500/20",
+  },
+  cyan: {
+    bg: "bg-cyan-500/10",
+    text: "text-cyan-400",
+    border: "border-cyan-500/20",
+    glow: "from-cyan-500/20",
+  },
+  emerald: {
+    bg: "bg-emerald-500/10",
+    text: "text-emerald-400",
+    border: "border-emerald-500/20",
+    glow: "from-emerald-500/20",
+  },
+  purple: {
+    bg: "bg-purple-500/10",
+    text: "text-purple-400",
+    border: "border-purple-500/20",
+    glow: "from-purple-500/20",
+  },
+  amber: {
+    bg: "bg-amber-500/10",
+    text: "text-amber-400",
+    border: "border-amber-500/20",
+    glow: "from-amber-500/20",
+  },
+  blue: {
+    bg: "bg-blue-500/10",
+    text: "text-blue-400",
+    border: "border-blue-500/20",
+    glow: "from-blue-500/20",
+  },
+};
+
+// ============================================================
+// Helpers
+// ============================================================
+const statusStyles: Record<string, string> = {
+  Active: "bg-emerald-500/15 border-emerald-500/30 text-emerald-300",
+  Planning: "bg-amber-500/15 border-amber-500/30 text-amber-300",
+  Pending: "bg-amber-500/15 border-amber-500/30 text-amber-300",
+  Completed: "bg-blue-500/15 border-blue-500/30 text-blue-300",
+  Upcoming: "bg-purple-500/15 border-purple-500/30 text-purple-300",
+};
+
+const getStatusStyle = (s: string) =>
+  statusStyles[s] || "bg-slate-500/15 border-slate-500/30 text-slate-300";
+
+const formatDate = (d: string) =>
+  new Date(d).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+const shorten = (v: string | null | undefined, max = 18) => {
+  if (!v) return "";
+  return v.length > max ? `${v.slice(0, max - 1)}…` : v;
+};
+
+// ============================================================
+// Component
+// ============================================================
 export default function MentalHealthProfessionalDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "working-groups" | "advocacy" | "research" | "regions" | "events">("overview");
-  
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [refreshing, setRefreshing] = useState(false);
+
   const [workingGroups, setWorkingGroups] = useState<WorkingGroup[]>([]);
   const [advocacyCampaigns, setAdvocacyCampaigns] = useState<AdvocacyCampaign[]>([]);
   const [researchProjects, setResearchProjects] = useState<ResearchProject[]>([]);
-  const [upcomingEvents, setUpcomingEvents] = useState<Event[]>([]);
-  const [countryReports, setCountryReports] = useState<any[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<EventItem[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // ============================================================
+  // Init
+  // ============================================================
   useEffect(() => {
     checkAuth();
   }, []);
 
   const checkAuth = async () => {
-    setIsLoading(true);
     try {
-      // First check localStorage
+      // 1. Fast path: cached profile
       const userStr = localStorage.getItem("user");
-      
       if (userStr) {
         try {
-          const userData = JSON.parse(userStr);
-          console.log("✅ User found in localStorage:", userData);
-          setUser(userData);
-          setIsLoading(false);
-          await fetchData(userData);
-          return;
-        } catch (e) {
+          const cached = JSON.parse(userStr);
+          if (
+            cached?.id &&
+            (cached.role === "Mental_Health_Professional" ||
+              cached.role === "mental_health_professional" ||
+              cached.role === "mental_health_coordinator" ||
+              cached.role === "Admin")
+          ) {
+            setUser(cached);
+            await fetchData(cached);
+            setCheckingAuth(false);
+            setLoading(false);
+            return;
+          }
+        } catch {
           localStorage.removeItem("user");
         }
       }
 
-      // Check Supabase session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
+      // 2. Authoritative path: Supabase session
+      const { data: { session }, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
         router.push("/login");
         return;
       }
 
-      // Get user profile
+      // 3. Fetch profile using auth_user_id (not id)
       const { data: profile, error: profileError } = await supabase
         .from("users")
         .select("*")
@@ -156,649 +250,1253 @@ export default function MentalHealthProfessionalDashboard() {
         return;
       }
 
-      // Check if user has mental health professional role
-      if (profile.role !== "Mental_Health_Professional" && profile.role !== "mental_health_professional") {
+      // 4. Guard: allowed roles only
+      const allowed = [
+        "Mental_Health_Professional",
+        "mental_health_professional",
+        "mental_health_coordinator",
+        "Admin",
+      ];
+      if (!allowed.includes(profile.role)) {
         router.push("/dashboard");
         return;
       }
 
-      // Cache in localStorage
+      // 5. Guard: approved
+      if (profile.status && profile.status !== "Approved") {
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
       localStorage.setItem("user", JSON.stringify(profile));
       setUser(profile);
-      setIsLoading(false);
       await fetchData(profile);
-
-    } catch (error) {
-      console.error("Auth check error:", error);
+    } catch (err) {
+      console.error("Auth error:", err);
       router.push("/login");
-    }
-  };
-
-  const fetchData = async (currentUser?: any) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Fetch working groups the user is part of
-      const { data: memberGroups, error: wgError } = await supabase
-        .from("working_group_members")
-        .select(`
-          working_group_id,
-          role,
-          working_groups:working_group_id (
-            id,
-            name,
-            description,
-            status,
-            progress,
-            created_by,
-            created_at
-          )
-        `)
-        .eq("user_id", currentUser?.id || user?.id);
-  
-      if (wgError) {
-        console.error("Error fetching working groups:", wgError);
-      } else if (memberGroups) {
-        // Get member counts for each group
-        const groupsWithCounts = await Promise.all(
-          memberGroups.map(async (mg) => {
-            // Get member count for this group
-            const { count } = await supabase
-              .from("working_group_members")
-              .select("*", { count: "exact", head: true })
-              .eq("working_group_id", mg.working_group_id);
-            
-            // Access the working_groups data correctly
-            const groupData = mg.working_groups as any;
-            
-            return {
-              id: groupData.id,
-              name: groupData.name || "Unnamed Group",
-              description: groupData.description || "",
-              role: mg.role || "Member",
-              members: count || 0,
-              status: (groupData.status as "Active" | "Pending" | "Completed") || "Active",
-              progress: groupData.progress || 0,
-              next_meeting: "",
-              created_by: groupData.created_by || "",
-              created_at: groupData.created_at || new Date().toISOString(),
-            };
-          })
-        );
-        setWorkingGroups(groupsWithCounts);
-      }
-  
-      // Fetch advocacy campaigns
-      const { data: acData, error: acError } = await supabase
-        .from("advocacy_campaigns")
-        .select("*")
-        .order("created_at", { ascending: false });
-  
-      if (acError) {
-        console.error("Error fetching advocacy campaigns:", acError);
-      } else if (acData) {
-        setAdvocacyCampaigns(acData);
-      }
-  
-      // Fetch research projects
-      const { data: rpData, error: rpError } = await supabase
-        .from("research_projects")
-        .select("*")
-        .order("created_at", { ascending: false });
-  
-      if (rpError) {
-        console.error("Error fetching research projects:", rpError);
-      } else if (rpData) {
-        setResearchProjects(rpData);
-      }
-  
-      // Fetch events
-      const { data: evData, error: evError } = await supabase
-        .from("events")
-        .select("*")
-        .gte("date", new Date().toISOString())
-        .order("date", { ascending: true });
-  
-      if (evError) {
-        console.error("Error fetching events:", evError);
-      } else if (evData) {
-        setUpcomingEvents(evData);
-      }
-  
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setError("Failed to load dashboard data");
     } finally {
+      setCheckingAuth(false);
       setLoading(false);
     }
   };
 
-  const stats = {
-    workingGroups: workingGroups.length,
-    activeInitiatives: advocacyCampaigns.filter(c => c.status === "Active").length,
-    countriesCovered: 12,
-    researchProjects: researchProjects.filter(p => p.status === "Active").length,
-    campaignReach: advocacyCampaigns.reduce((sum, c) => sum + c.reach, 0).toLocaleString(),
+  // ============================================================
+  // Data
+  // ============================================================
+  const fetchData = async (currentUser?: any) => {
+    const u = currentUser || user;
+    if (!u?.id) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      await Promise.all([
+        fetchWorkingGroups(u.id),
+        fetchAdvocacyCampaigns(),
+        fetchResearchProjects(),
+        fetchUpcomingEvents(),
+      ]);
+    } catch (err) {
+      console.error("fetchData error:", err);
+      setError("Failed to load some dashboard data.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
-        <div className="text-center">
-          <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-white mb-2">Error Loading Dashboard</h2>
-          <p className="text-slate-400 mb-6">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white transition-colors"
-          >
-            Refresh Page
-          </button>
-        </div>
-      </div>
+  const fetchWorkingGroups = async (userId: string) => {
+    try {
+      const { data: memberGroups, error: wgError } = await supabase
+        .from("working_group_members")
+        .select(
+          `
+          working_group_id,
+          role,
+          working_groups:working_group_id (
+            id, name, description, status, progress, created_by, created_at
+          )
+        `
+        )
+        .eq("user_id", userId);
+
+      if (wgError) {
+        console.warn("WG error:", wgError);
+        return;
+      }
+      if (!memberGroups || memberGroups.length === 0) {
+        setWorkingGroups([]);
+        return;
+      }
+
+      const groupsWithCounts = await Promise.all(
+        memberGroups.map(async (mg: any) => {
+          const { count } = await supabase
+            .from("working_group_members")
+            .select("*", { count: "exact", head: true })
+            .eq("working_group_id", mg.working_group_id);
+
+          const groupData = mg.working_groups as any;
+          if (!groupData) return null;
+
+          return {
+            id: groupData.id,
+            name: groupData.name || "Unnamed Group",
+            description: groupData.description || "",
+            role: mg.role || "Member",
+            members: count || 0,
+            status:
+              (groupData.status as "Active" | "Pending" | "Completed") ||
+              "Active",
+            progress: groupData.progress || 0,
+            created_at: groupData.created_at || new Date().toISOString(),
+          };
+        })
+      );
+
+      setWorkingGroups(groupsWithCounts.filter(Boolean) as WorkingGroup[]);
+    } catch (err) {
+      console.warn("fetchWorkingGroups:", err);
+    }
+  };
+
+  const fetchAdvocacyCampaigns = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("advocacy_campaigns")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(6);
+      if (error) throw error;
+      if (data) setAdvocacyCampaigns(data);
+    } catch (err) {
+      console.warn("fetchAdvocacy:", err);
+    }
+  };
+
+  const fetchResearchProjects = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("research_projects")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(6);
+      if (error) throw error;
+      if (data) setResearchProjects(data);
+    } catch (err) {
+      console.warn("fetchResearch:", err);
+    }
+  };
+
+  // Fixed: use start_date, not date
+  const fetchUpcomingEvents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("events")
+        .select("*")
+        .eq("approval_status", "Approved")
+        .gte("start_date", new Date().toISOString())
+        .order("start_date", { ascending: true })
+        .limit(6);
+      if (error) throw error;
+      if (data) setUpcomingEvents(data);
+    } catch (err) {
+      console.warn("fetchEvents:", err);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchData(user);
+  };
+
+  // ============================================================
+  // Derived stats & recommendations
+  // ============================================================
+  const stats = useMemo(() => {
+    const activeWG = workingGroups.filter((g) => g.status === "Active").length;
+    const activeCampaigns = advocacyCampaigns.filter(
+      (c) => c.status === "Active"
+    ).length;
+    const activeResearch = researchProjects.filter(
+      (p) => p.status === "Active"
+    ).length;
+    const campaignReach = advocacyCampaigns.reduce(
+      (sum, c) => sum + (c.reach || 0),
+      0
     );
-  }
-  
-  if (isLoading || loading) {
+    const totalEngagement = advocacyCampaigns.reduce(
+      (sum, c) => sum + (c.engagement || 0),
+      0
+    );
+    return {
+      workingGroups: workingGroups.length,
+      activeWorkingGroups: activeWG,
+      activeCampaigns,
+      activeResearch,
+      campaignReach,
+      totalEngagement,
+    };
+  }, [workingGroups, advocacyCampaigns, researchProjects]);
+
+  const recommendations = useMemo(() => {
+    const recs: { text: string; severity: "high" | "medium" | "info"; href?: string }[] = [];
+
+    if (workingGroups.length === 0) {
+      recs.push({
+        text: "You're not part of any working group yet. Join a group to contribute to continental reform.",
+        severity: "high",
+        href: "/working-groups",
+      });
+    }
+
+    if (researchProjects.filter((p) => p.status === "Active").length === 0) {
+      recs.push({
+        text: "No active research projects. Consider starting or joining a study on mental health outcomes.",
+        severity: "medium",
+        href: "/research-hub",
+      });
+    }
+
+    if (advocacyCampaigns.length === 0) {
+      recs.push({
+        text: "No advocacy campaigns found. Launch one to shape public discourse on mental health.",
+        severity: "medium",
+        href: "/advocacy-campaigns/new",
+      });
+    }
+
+    recs.push({
+      text: "Explore the continental working groups and align your clinical expertise with a priority area.",
+      severity: "info",
+      href: "/working-groups",
+    });
+
+    return recs.slice(0, 4);
+  }, [workingGroups, researchProjects, advocacyCampaigns]);
+
+  // ============================================================
+  // Six pillars of professional practice
+  // ============================================================
+  const pillars = [
+    {
+      icon: Stethoscope,
+      title: "Clinical Practice",
+      desc: "Rights-based, person-centered care across the continuum — from community to specialist services.",
+      color: "rose",
+    },
+    {
+      icon: GraduationCap,
+      title: "Training & Supervision",
+      desc: "Upskill peers, supervise trainees, and strengthen the continental mental health workforce.",
+      color: "cyan",
+    },
+    {
+      icon: Microscope,
+      title: "Research & Evidence",
+      desc: "Generate and use evidence that drives policy, service design, and clinical guidelines.",
+      color: "purple",
+    },
+    {
+      icon: Megaphone,
+      title: "Advocacy & Voice",
+      desc: "Champion de-stigmatisation, decriminalisation, and rights-based reforms in your country.",
+      color: "amber",
+    },
+    {
+      icon: Users2,
+      title: "Peer Networks",
+      desc: "Connect with colleagues across borders, share case learning, and support each other.",
+      color: "emerald",
+    },
+    {
+      icon: HeartHandshake,
+      title: "Community Engagement",
+      desc: "Work with CSOs, faith groups, and community leaders to reach underserved populations.",
+      color: "blue",
+    },
+  ];
+
+  // ============================================================
+  // Loading state
+  // ============================================================
+  if (checkingAuth || (loading && !user)) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
+      <main className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-300">Loading Professional Dashboard...</p>
+          <Loader2 className="w-14 h-14 text-rose-400 animate-spin mx-auto mb-4" />
+          <p className="text-slate-300">Loading clinical workspace…</p>
         </div>
-      </div>
+      </main>
     );
   }
 
+  // ============================================================
+  // Render
+  // ============================================================
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
+    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-slate-200">
       <GovernanceAlertsWidget userRole="mental_health_professional" />
-      {/* Header */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 border-b border-cyan-500/20">
-        <div className="relative px-6 md:px-8 py-8 md:py-10">
-          <div className="flex justify-between items-start flex-wrap gap-4">
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="px-3 py-1 bg-cyan-500/20 rounded-full border border-cyan-500/30">
-                  <span className="text-cyan-300 text-xs font-mono tracking-wider">
+
+      <div className="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-10">
+        {/* ============================================
+            HERO
+        ============================================ */}
+        <section className="relative overflow-hidden rounded-3xl border border-rose-500/20 bg-gradient-to-br from-rose-950 via-slate-900/80 to-slate-900 p-8 md:p-10 mb-8 shadow-2xl">
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute -top-24 -right-24 w-96 h-96 bg-rose-500/20 rounded-full blur-3xl" />
+            <div className="absolute -bottom-32 -left-32 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl" />
+          </div>
+          <div className="absolute right-0 top-0 text-[180px] font-black text-white/[0.03] select-none pointer-events-none leading-none">
+            MHP
+          </div>
+
+          <div className="relative z-10">
+            <div className="flex flex-wrap items-start gap-6 mb-8">
+              <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 backdrop-blur">
+                <Stethoscope className="w-10 h-10 text-rose-300" />
+              </div>
+              <div className="flex-1 min-w-[260px]">
+                <div className="flex items-center gap-3 mb-2 flex-wrap">
+                  <span className="px-3 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-mono tracking-wider">
                     MENTAL HEALTH PROFESSIONAL PORTAL
                   </span>
+                  <Link
+                    href="/notifications"
+                    className="px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono tracking-wider flex items-center gap-1.5 hover:bg-amber-500/25 transition-colors"
+                  >
+                    <Heart className="w-3 h-3" />
+                    Clinical alerts
+                  </Link>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Stethoscope className="w-4 h-4 text-green-400 animate-pulse" />
-                  <span className="text-slate-400 text-xs">Clinical Leadership</span>
-                </div>
+                <h1 className="text-3xl md:text-5xl font-black text-white leading-tight">
+                  {user?.full_name
+                    ? `Welcome, ${user.full_name.split(" ")[0]}`
+                    : "Mental Health Professional Workspace"}
+                </h1>
+                <p className="text-rose-100/80 mt-3 text-base md:text-lg max-w-3xl">
+                  Clinical practice, research, supervision, and continental
+                  advocacy — all in one place. You are the backbone of
+                  Africa's mental health reform.
+                </p>
               </div>
-              <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
-                Mental Health Professional Command Center
-              </h1>
-              <p className="text-slate-300 text-base md:text-lg mt-3 max-w-3xl">
-                Welcome, {user?.full_name || "Professional"}. Lead working groups, drive advocacy, coordinate research, and oversee regional mental health initiatives.
+            </div>
+
+            {/* Quick stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <QuickStat
+                label="Working Groups"
+                value={stats.workingGroups}
+                icon={Users}
+                accent="rose"
+              />
+              <QuickStat
+                label="Active Campaigns"
+                value={stats.activeCampaigns}
+                icon={Megaphone}
+                accent="amber"
+              />
+              <QuickStat
+                label="Research Projects"
+                value={stats.activeResearch}
+                icon={Microscope}
+                accent="purple"
+              />
+              <QuickStat
+                label="Campaign Reach"
+                value={
+                  stats.campaignReach > 1000
+                    ? `${(stats.campaignReach / 1000).toFixed(1)}K`
+                    : stats.campaignReach
+                }
+                icon={TrendingUp}
+                accent="cyan"
+              />
+            </div>
+
+            {/* CTAs */}
+            <div className="flex flex-wrap gap-3 mt-8">
+              <Link
+                href="/working-groups"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-rose-900 font-semibold hover:bg-rose-50 transition-colors shadow-lg"
+              >
+                <Users className="w-4 h-4" />
+                Browse Working Groups
+              </Link>
+              <Link
+                href="/advocacy-campaigns"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-100 font-semibold hover:bg-rose-500/25 transition-colors"
+              >
+                <Megaphone className="w-4 h-4" />
+                Advocacy Campaigns
+              </Link>
+              <Link
+                href="/research-hub"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-100 font-semibold hover:bg-rose-500/25 transition-colors"
+              >
+                <Microscope className="w-4 h-4" />
+                Research Hub
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {/* ============================================
+            ERROR
+        ============================================ */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <p className="text-red-300 text-sm flex-1">{error}</p>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-300"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* ============================================
+            RECOMMENDED ACTIONS
+        ============================================ */}
+        {recommendations.length > 0 && (
+          <section className="rounded-2xl border border-cyan-500/20 bg-slate-900/60 backdrop-blur p-6 mb-8">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
+                <Sparkles className="w-5 h-5 text-cyan-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-white">
+                  Recommended Next Steps
+                </h2>
+                <p className="text-slate-400 text-xs mt-0.5">
+                  Personalised from your activity and the continental
+                  priorities.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {recommendations.map((rec, idx) => {
+                const styles =
+                  rec.severity === "high"
+                    ? { border: "border-rose-500/30", bg: "bg-rose-500/5" }
+                    : rec.severity === "medium"
+                    ? { border: "border-amber-500/30", bg: "bg-amber-500/5" }
+                    : { border: "border-blue-500/30", bg: "bg-blue-500/5" };
+                const dot =
+                  rec.severity === "high"
+                    ? "bg-rose-400"
+                    : rec.severity === "medium"
+                    ? "bg-amber-400"
+                    : "bg-blue-400";
+                return (
+                  <Link
+                    key={idx}
+                    href={rec.href || "#"}
+                    className={`group rounded-xl border ${styles.border} ${styles.bg} p-4 hover:scale-[1.01] transition-transform`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <div
+                        className={`mt-1 w-2 h-2 rounded-full shrink-0 ${dot}`}
+                      />
+                      <p className="text-slate-300 text-sm leading-relaxed flex-1">
+                        {rec.text}
+                      </p>
+                      <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 group-hover:translate-x-0.5 transition-all flex-shrink-0 mt-1" />
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* ============================================
+            SIX PILLARS
+        ============================================ */}
+        <section className="mb-10">
+          <div className="flex items-end justify-between mb-5 flex-wrap gap-3">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-black text-white">
+                Six Pillars of Professional Practice
+              </h2>
+              <p className="text-slate-400 mt-1 text-sm">
+                What it means to be a mental health professional in the
+                AMHROA network.
               </p>
             </div>
+            <span className="text-xs text-slate-500 font-mono">
+              6 PILLARS
+            </span>
+          </div>
 
-            <div className="flex gap-2">
-              <button
-                onClick={() => fetchData(user)}
-                className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-600 transition-colors"
-              >
-                <RefreshCw className="w-4 h-4" />
-                <span className="text-sm hidden sm:inline">Refresh</span>
-              </button>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {pillars.map((p) => {
+              const Icon = p.icon;
+              const a = ACCENTS[p.color] || ACCENTS.rose;
+              return (
+                <div
+                  key={p.title}
+                  className={`relative overflow-hidden rounded-2xl border ${a.border} bg-slate-900/60 backdrop-blur p-5 hover:bg-slate-800/60 transition-colors group`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`p-2.5 rounded-xl ${a.bg} border ${a.border}`}
+                    >
+                      <Icon className={`w-5 h-5 ${a.text}`} />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-white font-bold">{p.title}</h3>
+                      <p className="text-slate-400 text-sm mt-1 leading-relaxed">
+                        {p.desc}
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className={`absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r ${a.glow} to-transparent opacity-0 group-hover:opacity-100 transition-opacity`}
+                  />
+                </div>
+              );
+            })}
           </div>
-        </div>
-      </div>
+        </section>
 
-      <div className="px-4 md:px-8 py-6">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
-          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-            <div className="flex items-center gap-2 mb-2">
-              <Users className="w-4 h-4 text-cyan-400" />
-              <p className="text-slate-400 text-xs">Working Groups</p>
-            </div>
-            <p className="text-2xl font-bold text-white">{stats.workingGroups}</p>
-          </div>
-          <div className="bg-purple-500/10 rounded-xl p-4 border border-purple-500/20">
-            <div className="flex items-center gap-2 mb-2">
-              <Target className="w-4 h-4 text-purple-400" />
-              <p className="text-purple-400 text-xs">Active Initiatives</p>
-            </div>
-            <p className="text-2xl font-bold text-purple-400">{stats.activeInitiatives}</p>
-          </div>
-          <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20">
-            <div className="flex items-center gap-2 mb-2">
-              <Globe className="w-4 h-4 text-emerald-400" />
-              <p className="text-emerald-400 text-xs">Countries Covered</p>
-            </div>
-            <p className="text-2xl font-bold text-emerald-400">{stats.countriesCovered}</p>
-          </div>
-          <div className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/20">
-            <div className="flex items-center gap-2 mb-2">
-              <Microscope className="w-4 h-4 text-blue-400" />
-              <p className="text-blue-400 text-xs">Research Projects</p>
-            </div>
-            <p className="text-2xl font-bold text-blue-400">{stats.researchProjects}</p>
-          </div>
-          <div className="bg-amber-500/10 rounded-xl p-4 border border-amber-500/20">
-            <div className="flex items-center gap-2 mb-2">
-              <Megaphone className="w-4 h-4 text-amber-400" />
-              <p className="text-amber-400 text-xs">Campaign Reach</p>
-            </div>
-            <p className="text-xl font-bold text-amber-400">{stats.campaignReach}</p>
-          </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="flex flex-wrap gap-2 mb-6 border-b border-slate-700 pb-4">
-          <button
+        {/* ============================================
+            TABS
+        ============================================ */}
+        <section className="flex flex-wrap gap-2 mb-6 border-b border-slate-700 pb-4">
+          <TabButton
+            active={activeTab === "overview"}
             onClick={() => setActiveTab("overview")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-              activeTab === "overview" ? "bg-cyan-600 text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"
-            }`}
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            Overview
-          </button>
-          <button
+            icon={LayoutDashboard}
+            label="Overview"
+          />
+          <TabButton
+            active={activeTab === "working-groups"}
             onClick={() => setActiveTab("working-groups")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-              activeTab === "working-groups" ? "bg-cyan-600 text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Working Groups
-          </button>
-          <button
+            icon={Users}
+            label="Working Groups"
+            badge={stats.workingGroups || undefined}
+          />
+          <TabButton
+            active={activeTab === "advocacy"}
             onClick={() => setActiveTab("advocacy")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-              activeTab === "advocacy" ? "bg-cyan-600 text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"
-            }`}
-          >
-            <Megaphone className="w-4 h-4" />
-            Advocacy
-          </button>
-          <button
+            icon={Megaphone}
+            label="Advocacy"
+            badge={advocacyCampaigns.length || undefined}
+          />
+          <TabButton
+            active={activeTab === "research"}
             onClick={() => setActiveTab("research")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-              activeTab === "research" ? "bg-cyan-600 text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"
-            }`}
-          >
-            <Microscope className="w-4 h-4" />
-            Research
-          </button>
-          <button
-            onClick={() => setActiveTab("regions")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-              activeTab === "regions" ? "bg-cyan-600 text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"
-            }`}
-          >
-            <Globe className="w-4 h-4" />
-            Regional
-          </button>
-          <button
+            icon={Microscope}
+            label="Research"
+            badge={researchProjects.length || undefined}
+          />
+          <TabButton
+            active={activeTab === "events"}
             onClick={() => setActiveTab("events")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-              activeTab === "events" ? "bg-cyan-600 text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"
-            }`}
-          >
-            <Calendar className="w-4 h-4" />
-            Events
-          </button>
-        </div>
+            icon={Calendar}
+            label="Events"
+            badge={upcomingEvents.length || undefined}
+          />
+        </section>
 
-        {/* Overview Tab */}
+        {/* ============================================
+            OVERVIEW
+        ============================================ */}
         {activeTab === "overview" && (
           <div className="space-y-6">
-            {/* Leadership Role Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-gradient-to-r from-cyan-600/20 to-blue-600/20 rounded-2xl border border-cyan-500/30 p-4">
-                <Crown className="w-8 h-8 text-yellow-400 mb-2" />
-                <p className="text-slate-400 text-xs">Role</p>
-                <p className="text-white font-bold text-lg">Mental Health Professional</p>
-                <p className="text-slate-400 text-sm">Clinical Leadership</p>
-              </div>
-              <div className="bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-2xl border border-purple-500/30 p-4">
-                <Users className="w-8 h-8 text-purple-400 mb-2" />
-                <p className="text-slate-400 text-xs">Working Groups</p>
-                <p className="text-white font-bold text-lg">{stats.workingGroups}</p>
-                <p className="text-slate-400 text-sm">Active Groups</p>
-              </div>
-              <div className="bg-gradient-to-r from-emerald-600/20 to-green-600/20 rounded-2xl border border-emerald-500/30 p-4">
-                <Globe className="w-8 h-8 text-emerald-400 mb-2" />
-                <p className="text-slate-400 text-xs">Research</p>
-                <p className="text-white font-bold text-lg">{stats.researchProjects}</p>
-                <p className="text-slate-400 text-sm">Active Projects</p>
-              </div>
-              <div className="bg-gradient-to-r from-amber-600/20 to-orange-600/20 rounded-2xl border border-amber-500/30 p-4">
-                <Heart className="w-8 h-8 text-amber-400 mb-2" />
-                <p className="text-slate-400 text-xs">Impact</p>
-                <p className="text-white font-bold text-lg">{stats.campaignReach}</p>
-                <p className="text-slate-400 text-sm">People Reached</p>
-              </div>
-            </div>
-
-            {/* Working Groups Overview */}
-            <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-white font-semibold text-lg flex items-center gap-2">
-                  <Users className="w-5 h-5 text-cyan-400" />
-                  Your Working Groups
-                </h3>
-                <Link href="/working-groups/new" className="text-cyan-400 hover:text-cyan-300 text-sm flex items-center gap-1">
-                  <Plus className="w-4 h-4" />
-                  Create Group
+            {/* Working groups preview */}
+            <div className="rounded-2xl border border-slate-700/60 bg-slate-900/60 backdrop-blur p-6">
+              <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                    <Users className="w-5 h-5 text-rose-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-white">
+                      Your Working Groups
+                    </h2>
+                    <p className="text-slate-400 text-xs mt-0.5">
+                      Where your clinical expertise is making a difference.
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  href="/working-groups"
+                  className="text-rose-400 hover:text-rose-300 text-sm font-semibold inline-flex items-center gap-1"
+                >
+                  See all
+                  <ChevronRight className="w-4 h-4" />
                 </Link>
               </div>
-              <div className="space-y-4">
-                {workingGroups.length > 0 ? (
-                  workingGroups.slice(0, 3).map((group) => (
-                    <div key={group.id} className="bg-slate-700/30 rounded-xl p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <h4 className="text-white font-semibold">{group.name}</h4>
-                          <p className="text-slate-400 text-sm mt-1">{group.description}</p>
-                        </div>
-                        <span className={`px-2 py-1 rounded-full text-xs ${
-                          group.status === "Active" ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400"
-                        }`}>
-                          {group.status}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-slate-400">
-                        <span>{group.members} members</span>
-                        <span>Your Role: {group.role}</span>
-                      </div>
-                      <div className="mt-3">
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-slate-400">Progress</span>
-                          <span className="text-cyan-400">{group.progress}%</span>
-                        </div>
-                        <div className="w-full bg-slate-700 rounded-full h-2">
-                          <div className="bg-cyan-500 h-2 rounded-full" style={{ width: `${group.progress}%` }}></div>
-                        </div>
-                      </div>
+
+              {workingGroups.length === 0 ? (
+                <div className="text-center py-10 rounded-2xl border border-dashed border-slate-700/60">
+                  <Users className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                  <p className="text-white font-semibold">
+                    You haven't joined a working group yet
+                  </p>
+                  <p className="text-slate-400 text-sm mt-1">
+                    Working groups are where clinical insight meets collective
+                    action.
+                  </p>
+                  <Link
+                    href="/working-groups"
+                    className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-sm font-semibold hover:bg-rose-500/25 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Browse Working Groups
+                  </Link>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {workingGroups.slice(0, 4).map((g) => (
+                    <WorkingGroupCard key={g.id} group={g} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Advocacy + Research side-by-side */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Advocacy */}
+              <div className="rounded-2xl border border-slate-700/60 bg-slate-900/60 backdrop-blur p-6">
+                <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                      <Megaphone className="w-5 h-5 text-amber-400" />
                     </div>
-                  ))
+                    <div>
+                      <h3 className="text-lg font-black text-white">
+                        Advocacy Campaigns
+                      </h3>
+                      <p className="text-slate-400 text-xs mt-0.5">
+                        Movements you can join or amplify.
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    href="/advocacy-campaigns"
+                    className="text-amber-400 hover:text-amber-300 text-sm font-semibold inline-flex items-center gap-1"
+                  >
+                    All
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </div>
+
+                {advocacyCampaigns.length === 0 ? (
+                  <p className="text-slate-400 text-sm text-center py-6">
+                    No active campaigns right now.
+                  </p>
                 ) : (
-                  <div className="text-center py-6 text-slate-400">
-                    <p>You're not a member of any working groups yet.</p>
-                    <Link href="/working-groups" className="text-cyan-400 hover:text-cyan-300 text-sm mt-2 inline-block">
-                      Browse Working Groups →
-                    </Link>
+                  <div className="space-y-3">
+                    {advocacyCampaigns.slice(0, 3).map((c) => (
+                      <Link
+                        key={c.id}
+                        href={`/advocacy-campaigns/${c.id}`}
+                        className="block rounded-xl border border-slate-700/60 bg-slate-800/40 hover:border-amber-500/40 hover:bg-slate-800/70 p-4 transition-all group"
+                      >
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <p className="text-white font-bold group-hover:text-amber-300 transition-colors line-clamp-2">
+                            {c.title}
+                          </p>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${getStatusStyle(
+                              c.status
+                            )}`}
+                          >
+                            {c.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <TrendingUp className="w-3 h-3" />
+                            {c.reach?.toLocaleString() || 0} reached
+                          </span>
+                          {c.region && (
+                            <span className="flex items-center gap-1">
+                              <Globe className="w-3 h-3" />
+                              {c.region}
+                            </span>
+                          )}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Research */}
+              <div className="rounded-2xl border border-slate-700/60 bg-slate-900/60 backdrop-blur p-6">
+                <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                      <Microscope className="w-5 h-5 text-purple-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black text-white">
+                        Research Projects
+                      </h3>
+                      <p className="text-slate-400 text-xs mt-0.5">
+                        Studies shaping the reform agenda.
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    href="/research-hub"
+                    className="text-purple-400 hover:text-purple-300 text-sm font-semibold inline-flex items-center gap-1"
+                  >
+                    All
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </div>
+
+                {researchProjects.length === 0 ? (
+                  <p className="text-slate-400 text-sm text-center py-6">
+                    No research projects yet.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {researchProjects.slice(0, 3).map((p) => (
+                      <Link
+                        key={p.id}
+                        href={`/research-projects/${p.id}`}
+                        className="block rounded-xl border border-slate-700/60 bg-slate-800/40 hover:border-purple-500/40 hover:bg-slate-800/70 p-4 transition-all group"
+                      >
+                        <div className="flex items-start justify-between gap-3 mb-1">
+                          <p className="text-white font-bold group-hover:text-purple-300 transition-colors line-clamp-2">
+                            {p.title}
+                          </p>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${getStatusStyle(
+                              p.status
+                            )}`}
+                          >
+                            {p.status}
+                          </span>
+                        </div>
+                        <p className="text-slate-500 text-xs">
+                          Lead: {p.lead || "—"} · {p.collaborators || 0}{" "}
+                          collaborators
+                        </p>
+                      </Link>
+                    ))}
                   </div>
                 )}
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Working Groups Tab */}
-        {activeTab === "working-groups" && (
-          <div className="space-y-4">
-            <div className="flex justify-end mb-4">
-              <Link
-                href="/working-groups/new"
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors inline-flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                Create New Working Group
-              </Link>
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {workingGroups.length > 0 ? (
-                workingGroups.map((group) => (
-                  <div key={group.id} className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 hover:border-cyan-500/30 transition-all">
-                    <div className="flex justify-between items-start mb-4">
-                      <h3 className="text-xl font-bold text-white">{group.name}</h3>
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        group.status === "Active" ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400"
-                      }`}>
-                        {group.status}
-                      </span>
+            {/* Upcoming events */}
+            {upcomingEvents.length > 0 && (
+              <div className="rounded-2xl border border-slate-700/60 bg-slate-900/60 backdrop-blur p-6">
+                <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
+                      <Calendar className="w-5 h-5 text-cyan-400" />
                     </div>
-                    <p className="text-slate-400 text-sm mb-4">{group.description}</p>
-                    <div className="flex items-center gap-4 text-sm text-slate-400 mb-4">
-                      <span>{group.members} members</span>
-                      <span>Your Role: {group.role}</span>
-                    </div>
-                    <div className="mb-4">
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-slate-400">Progress</span>
-                        <span className="text-cyan-400">{group.progress}%</span>
-                      </div>
-                      <div className="w-full bg-slate-700 rounded-full h-2">
-                        <div className="bg-cyan-500 h-2 rounded-full" style={{ width: `${group.progress}%` }}></div>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 text-sm">Created: {new Date(group.created_at).toLocaleDateString()}</span>
-                      <Link href={`/working-groups/${group.id}`} className="text-cyan-400 hover:text-cyan-300 text-sm">
-                        View Details →
-                      </Link>
+                    <div>
+                      <h3 className="text-lg font-black text-white">
+                        Upcoming Events
+                      </h3>
+                      <p className="text-slate-400 text-xs mt-0.5">
+                        Learning, collaboration, and peer connection.
+                      </p>
                     </div>
                   </div>
-                ))
-              ) : (
-                <div className="col-span-2 text-center py-12 text-slate-400 bg-slate-800/30 rounded-2xl border border-slate-700">
-                  <Users className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                  <p className="text-lg">No working groups yet</p>
-                  <p className="text-sm mt-1">Join or create a working group to get started</p>
-                  <Link href="/working-groups" className="text-cyan-400 hover:text-cyan-300 text-sm mt-3 inline-block">
-                    Browse Working Groups →
+                  <Link
+                    href="/events"
+                    className="text-cyan-400 hover:text-cyan-300 text-sm font-semibold inline-flex items-center gap-1"
+                  >
+                    All events
+                    <ChevronRight className="w-4 h-4" />
                   </Link>
                 </div>
-              )}
-            </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {upcomingEvents.slice(0, 3).map((e) => (
+                    <EventCard key={e.id} event={e} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Advocacy Tab */}
+        {/* ============================================
+            WORKING GROUPS
+        ============================================ */}
+        {activeTab === "working-groups" && (
+          <section>
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <div>
+                <h2 className="text-2xl font-black text-white">
+                  Working Groups
+                </h2>
+                <p className="text-slate-400 text-sm mt-1">
+                  Ongoing and completed groups you're part of.
+                </p>
+              </div>
+              <Link
+                href="/working-groups/new"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 font-semibold text-sm hover:bg-rose-500/25 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Create Working Group
+              </Link>
+            </div>
+
+            {workingGroups.length === 0 ? (
+              <EmptyState
+                icon={Users}
+                title="You haven't joined a working group yet"
+                sub="Working groups are the primary way professionals collaborate on the platform."
+                cta={{ label: "Browse Working Groups", href: "/working-groups" }}
+              />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {workingGroups.map((g) => (
+                  <WorkingGroupCard key={g.id} group={g} detailed />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ============================================
+            ADVOCACY
+        ============================================ */}
         {activeTab === "advocacy" && (
-          <div className="space-y-6">
-            <div className="flex justify-end mb-4">
+          <section>
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <div>
+                <h2 className="text-2xl font-black text-white">
+                  Advocacy Campaigns
+                </h2>
+                <p className="text-slate-400 text-sm mt-1">
+                  Movements you can join, amplify, or lead.
+                </p>
+              </div>
               <Link
                 href="/advocacy-campaigns/new"
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors inline-flex items-center gap-2"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 font-semibold text-sm hover:bg-amber-500/25 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Create Campaign
               </Link>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {advocacyCampaigns.length > 0 ? (
-                advocacyCampaigns.map((campaign) => (
-                  <div key={campaign.id} className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className="text-xl font-bold text-white">{campaign.title}</h3>
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        campaign.status === "Active" ? "bg-emerald-500/20 text-emerald-400" :
-                        campaign.status === "Planning" ? "bg-yellow-500/20 text-yellow-400" : "bg-slate-500/20 text-slate-400"
-                      }`}>
-                        {campaign.status}
+
+            {advocacyCampaigns.length === 0 ? (
+              <EmptyState
+                icon={Megaphone}
+                title="No campaigns yet"
+                sub="Be the first professional to launch an advocacy campaign for reform."
+                cta={{
+                  label: "Start a Campaign",
+                  href: "/advocacy-campaigns/new",
+                }}
+              />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {advocacyCampaigns.map((c) => (
+                  <Link
+                    key={c.id}
+                    href={`/advocacy-campaigns/${c.id}`}
+                    className="group rounded-2xl border border-slate-700/60 bg-slate-900/60 backdrop-blur p-6 hover:border-amber-500/40 hover:bg-slate-800/60 transition-all"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <span
+                        className={`px-2 py-0.5 rounded-full border text-xs font-semibold ${getStatusStyle(
+                          c.status
+                        )}`}
+                      >
+                        {c.status}
                       </span>
+                      {c.region && (
+                        <span className="text-xs text-slate-500 flex items-center gap-1">
+                          <Globe className="w-3 h-3" />
+                          {c.region}
+                        </span>
+                      )}
                     </div>
-                    <p className="text-slate-400 text-sm mb-4">{campaign.description}</p>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div className="text-center p-3 bg-slate-700/30 rounded-lg">
-                        <p className="text-2xl font-bold text-cyan-400">{campaign.reach.toLocaleString()}</p>
-                        <p className="text-slate-500 text-xs">Reach</p>
+                    <h3 className="text-xl font-bold text-white group-hover:text-amber-300 transition-colors line-clamp-2">
+                      {c.title}
+                    </h3>
+                    <p className="text-slate-400 text-sm mt-2 line-clamp-3">
+                      {c.description}
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 mt-5 pt-4 border-t border-slate-700/50">
+                      <div>
+                        <p className="text-2xl font-black text-amber-300">
+                          {c.reach?.toLocaleString() || 0}
+                        </p>
+                        <p className="text-slate-500 text-xs uppercase tracking-wider">
+                          Reach
+                        </p>
                       </div>
-                      <div className="text-center p-3 bg-slate-700/30 rounded-lg">
-                        <p className="text-2xl font-bold text-purple-400">{campaign.engagement.toLocaleString()}</p>
-                        <p className="text-slate-500 text-xs">Engagement</p>
+                      <div>
+                        <p className="text-2xl font-black text-purple-300">
+                          {c.engagement?.toLocaleString() || 0}
+                        </p>
+                        <p className="text-slate-500 text-xs uppercase tracking-wider">
+                          Engagement
+                        </p>
                       </div>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 text-xs">{campaign.region}</span>
-                      <Link href={`/advocacy-campaigns/${campaign.id}`} className="text-cyan-400 hover:text-cyan-300 text-sm">
-                        View Details →
-                      </Link>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="col-span-2 text-center py-12 text-slate-400 bg-slate-800/30 rounded-2xl border border-slate-700">
-                  <Megaphone className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                  <p className="text-lg">No advocacy campaigns</p>
-                  <p className="text-sm mt-1">Create your first advocacy campaign</p>
-                </div>
-              )}
-            </div>
-          </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
         )}
 
-        {/* Research Tab */}
+        {/* ============================================
+            RESEARCH
+        ============================================ */}
         {activeTab === "research" && (
-          <div className="space-y-6">
-            <div className="flex justify-end mb-4">
+          <section>
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <div>
+                <h2 className="text-2xl font-black text-white">
+                  Research Projects
+                </h2>
+                <p className="text-slate-400 text-sm mt-1">
+                  Studies driving evidence-based reform.
+                </p>
+              </div>
               <Link
                 href="/research-projects/new"
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors inline-flex items-center gap-2"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-200 font-semibold text-sm hover:bg-purple-500/25 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 New Research Project
               </Link>
             </div>
-            <div className="space-y-3">
-              {researchProjects.length > 0 ? (
-                researchProjects.map((project) => (
-                  <div key={project.id} className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 hover:border-cyan-500/30 transition-all">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="text-white font-semibold">{project.title}</h4>
-                        <p className="text-slate-400 text-sm">Lead: {project.lead} · {project.collaborators} collaborators</p>
+
+            {researchProjects.length === 0 ? (
+              <EmptyState
+                icon={Microscope}
+                title="No research projects"
+                sub="Start or join a study to contribute to continental evidence."
+                cta={{
+                  label: "Start Research",
+                  href: "/research-projects/new",
+                }}
+              />
+            ) : (
+              <div className="space-y-3">
+                {researchProjects.map((p) => (
+                  <Link
+                    key={p.id}
+                    href={`/research-projects/${p.id}`}
+                    className="block rounded-2xl border border-slate-700/60 bg-slate-900/60 backdrop-blur p-5 hover:border-purple-500/40 hover:bg-slate-800/60 transition-all group"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex-1 min-w-[240px]">
+                        <h3 className="text-lg font-bold text-white group-hover:text-purple-300 transition-colors">
+                          {p.title}
+                        </h3>
+                        <p className="text-slate-400 text-sm mt-1 line-clamp-2">
+                          {p.description}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            Lead: {p.lead || "—"}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Users2 className="w-3 h-3" />
+                            {p.collaborators || 0} collaborators
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {formatDate(p.start_date)}
+                          </span>
+                        </div>
                       </div>
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        project.status === "Active" ? "bg-emerald-500/20 text-emerald-400" :
-                        project.status === "Pending" ? "bg-yellow-500/20 text-yellow-400" : "bg-slate-500/20 text-slate-400"
-                      }`}>
-                        {project.status}
+                      <span
+                        className={`px-2 py-1 rounded-full border text-xs font-semibold shrink-0 ${getStatusStyle(
+                          p.status
+                        )}`}
+                      >
+                        {p.status}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center mt-3">
-                      <span className="text-slate-400 text-xs">
-                        {new Date(project.start_date).toLocaleDateString()} - {new Date(project.end_date).toLocaleDateString()}
-                      </span>
-                      <Link href={`/research-projects/${project.id}`} className="text-cyan-400 hover:text-cyan-300 text-sm">
-                        View Details →
-                      </Link>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-12 text-slate-400 bg-slate-800/30 rounded-2xl border border-slate-700">
-                  <Microscope className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                  <p className="text-lg">No research projects</p>
-                  <p className="text-sm mt-1">Start a new research project</p>
-                </div>
-              )}
-            </div>
-          </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
         )}
 
-        {/* Events Tab */}
+        {/* ============================================
+            EVENTS
+        ============================================ */}
         {activeTab === "events" && (
-          <div className="space-y-6">
-            <div className="flex justify-end mb-4">
+          <section>
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <div>
+                <h2 className="text-2xl font-black text-white">
+                  Upcoming Events
+                </h2>
+                <p className="text-slate-400 text-sm mt-1">
+                  Conferences, trainings, and clinical peer exchanges.
+                </p>
+              </div>
               <Link
-                href="/events/new"
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm transition-colors inline-flex items-center gap-2"
+                href="/events"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-200 font-semibold text-sm hover:bg-cyan-500/25 transition-colors"
               >
-                <Plus className="w-4 h-4" />
-                Schedule Event
+                <Calendar className="w-4 h-4" />
+                Browse All Events
               </Link>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {upcomingEvents.length > 0 ? (
-                upcomingEvents.map((event) => (
-                  <div key={event.id} className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 hover:border-cyan-500/30 transition-all">
-                    <div className="flex justify-between items-start mb-3">
-                      <h3 className="text-xl font-bold text-white">{event.title}</h3>
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        event.type === "Conference" ? "bg-purple-500/20 text-purple-400" :
-                        event.type === "Webinar" ? "bg-cyan-500/20 text-cyan-400" :
-                        "bg-emerald-500/20 text-emerald-400"
-                      }`}>
-                        {event.type}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-slate-400 mb-4">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-4 h-4" />
-                        {new Date(event.date).toLocaleDateString()}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Users className="w-4 h-4" />
-                        {event.attendees} attendees
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-4 h-4" />
-                        {event.location}
-                      </span>
-                    </div>
-                    <Link href={`/events/${event.id}`} className="text-cyan-400 hover:text-cyan-300 text-sm">
-                      View Details →
-                    </Link>
-                  </div>
-                ))
-              ) : (
-                <div className="col-span-2 text-center py-12 text-slate-400 bg-slate-800/30 rounded-2xl border border-slate-700">
-                  <Calendar className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                  <p className="text-lg">No upcoming events</p>
-                  <p className="text-sm mt-1">Schedule an event to get started</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
-        {/* Regions Tab */}
-        {activeTab === "regions" && (
-          <div className="space-y-6">
-            <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
-              <h3 className="text-white font-semibold text-lg flex items-center gap-2 mb-4">
-                <Globe className="w-5 h-5 text-cyan-400" />
-                Regional Coverage
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {[
-                  "West Africa", "East Africa", "Central Africa", 
-                  "Southern Africa", "North Africa", "Sahel Region",
-                  "Horn of Africa", "Great Lakes Region"
-                ].map((region) => (
-                  <div key={region} className="bg-slate-700/30 rounded-xl p-3 text-center">
-                    <p className="text-white font-medium">{region}</p>
-                    <p className="text-slate-400 text-xs">Active</p>
-                  </div>
+            {upcomingEvents.length === 0 ? (
+              <EmptyState
+                icon={Calendar}
+                title="No upcoming events"
+                sub="Check back soon — new events are published weekly."
+              />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {upcomingEvents.map((e) => (
+                  <EventCard key={e.id} event={e} />
                 ))}
               </div>
-            </div>
-
-            <div className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6">
-              <h3 className="text-white font-semibold text-lg flex items-center gap-2 mb-4">
-                <FileText className="w-5 h-5 text-cyan-400" />
-                Country Reports
-              </h3>
-              <div className="space-y-3">
-                {["Nigeria", "Kenya", "South Africa", "Ghana"].map((country) => (
-                  <div key={country} className="bg-slate-700/30 rounded-xl p-3 flex justify-between items-center">
-                    <div>
-                      <p className="text-white font-medium">{country}</p>
-                      <p className="text-slate-400 text-xs">Mental Health Report Q4 2024</p>
-                    </div>
-                    <Link href={`/countries/${country}`} className="text-cyan-400 hover:text-cyan-300 text-sm">
-                      View Report →
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+            )}
+          </section>
         )}
+
+        {/* Footer */}
+        <p className="text-center text-slate-500 text-xs mt-12">
+          AMHROA · Mental Health Professional Network · You are the backbone of
+          Africa's mental health reform
+        </p>
       </div>
+    </main>
+  );
+}
+
+// ============================================================
+// Sub-components
+// ============================================================
+function QuickStat({
+  label,
+  value,
+  icon: Icon,
+  accent = "rose",
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ElementType;
+  accent?: string;
+}) {
+  const a = ACCENTS[accent] || ACCENTS.rose;
+  const display = String(value);
+  const isLong = display.length > 12;
+  return (
+    <div className="rounded-2xl bg-white/5 border border-white/10 backdrop-blur p-4 hover:bg-white/10 transition-colors min-w-0">
+      <div className="flex items-center justify-between mb-2 gap-2">
+        <p className="text-rose-100/70 text-xs font-medium truncate">
+          {label}
+        </p>
+        <Icon className={`w-4 h-4 ${a.text} opacity-60 shrink-0`} />
+      </div>
+      <p
+        className={`font-black text-white leading-tight break-words ${
+          isLong ? "text-lg md:text-xl" : "text-xl md:text-2xl"
+        }`}
+        title={display}
+      >
+        {display}
+      </p>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon: Icon,
+  label,
+  badge,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ElementType;
+  label: string;
+  badge?: number;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 ${
+        active
+          ? "bg-rose-600 text-white shadow-lg shadow-rose-500/20"
+          : "text-slate-400 hover:text-white hover:bg-slate-800"
+      }`}
+    >
+      <Icon className="w-4 h-4" />
+      {label}
+      {badge !== undefined && badge > 0 && (
+        <span
+          className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+            active ? "bg-white/20" : "bg-rose-500 text-white"
+          }`}
+        >
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function WorkingGroupCard({
+  group,
+  detailed = false,
+}: {
+  group: WorkingGroup;
+  detailed?: boolean;
+}) {
+  return (
+    <Link
+      href={`/working-groups/${group.id}`}
+      className="block rounded-2xl border border-slate-700/60 bg-slate-800/40 hover:border-rose-500/40 hover:bg-slate-800/70 transition-all p-5 group"
+    >
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <h3 className="text-lg font-bold text-white group-hover:text-rose-300 transition-colors line-clamp-2">
+          {group.name}
+        </h3>
+        <span
+          className={`px-2 py-0.5 rounded-full border text-xs font-semibold shrink-0 ${getStatusStyle(
+            group.status
+          )}`}
+        >
+          {group.status}
+        </span>
+      </div>
+
+      <p className="text-slate-400 text-sm line-clamp-2 mb-4">
+        {group.description || "No description"}
+      </p>
+
+      <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 mb-4">
+        <span className="flex items-center gap-1">
+          <Users className="w-3 h-3" />
+          {group.members} members
+        </span>
+        <span className="flex items-center gap-1">
+          <Award className="w-3 h-3" />
+          {group.role}
+        </span>
+      </div>
+
+      <div>
+        <div className="flex justify-between items-center mb-1.5">
+          <span className="text-xs text-slate-400">Progress</span>
+          <span className="text-xs font-bold text-rose-300">
+            {group.progress}%
+          </span>
+        </div>
+        <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+          <div
+            className="h-1.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 transition-all"
+            style={{ width: `${group.progress}%` }}
+          />
+        </div>
+      </div>
+
+      {detailed && (
+        <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-700/50">
+          <span className="text-xs text-slate-500">
+            Created {formatDate(group.created_at)}
+          </span>
+          <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-rose-400 group-hover:translate-x-0.5 transition-all" />
+        </div>
+      )}
+    </Link>
+  );
+}
+
+function EventCard({ event }: { event: EventItem }) {
+  const date = new Date(event.start_date);
+  const day = date.getDate();
+  const month = date.toLocaleDateString("en-US", { month: "short" }).toUpperCase();
+
+  return (
+    <Link
+      href={`/events?id=${event.id}`}
+      className="rounded-2xl border border-slate-700/60 bg-slate-900/60 backdrop-blur p-5 hover:border-cyan-500/40 hover:bg-slate-800/60 transition-all block group"
+    >
+      <div className="flex gap-4">
+        <div className="shrink-0 w-14 h-14 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex flex-col items-center justify-center">
+          <span className="text-cyan-300 text-lg font-black leading-none">
+            {day}
+          </span>
+          <span className="text-cyan-400/70 text-[10px] font-bold tracking-wider">
+            {month}
+          </span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="px-2 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[10px] font-bold uppercase tracking-wider">
+              {event.event_type}
+            </span>
+            {event.is_virtual && (
+              <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                <Video className="w-2.5 h-2.5" />
+                Virtual
+              </span>
+            )}
+          </div>
+          <h3 className="text-white font-bold group-hover:text-cyan-300 transition-colors line-clamp-2">
+            {event.title}
+          </h3>
+          {event.description && (
+            <p className="text-slate-400 text-xs mt-1 line-clamp-2">
+              {event.description}
+            </p>
+          )}
+          {event.country && (
+            <div className="flex items-center gap-1 text-xs text-slate-500 mt-2">
+              <MapPin className="w-3 h-3" />
+              {event.country}
+            </div>
+          )}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  sub,
+  cta,
+}: {
+  icon: React.ElementType;
+  title: string;
+  sub: string;
+  cta?: { label: string; href: string };
+}) {
+  return (
+    <div className="text-center py-14 rounded-2xl border border-dashed border-slate-700/60 bg-slate-900/40">
+      <Icon className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+      <p className="text-white font-semibold">{title}</p>
+      <p className="text-slate-400 text-sm mt-1 max-w-md mx-auto">{sub}</p>
+      {cta && (
+        <Link
+          href={cta.href}
+          className="inline-flex items-center gap-2 mt-5 px-5 py-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-sm font-semibold hover:bg-rose-500/25 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          {cta.label}
+        </Link>
+      )}
     </div>
   );
 }

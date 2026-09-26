@@ -48,6 +48,7 @@ import {
 type UserRole = "admin" | "policymaker" | "researcher" | "cso" | "coordinator" | "donor" | "mental_health_professional" | "public";
 
 // Role display names
+// Role display names (plain strings — no JSX)
 const roleDisplayNames: Record<UserRole, string> = {
   admin: "System Administrator",
   policymaker: "Policy Director",
@@ -57,6 +58,18 @@ const roleDisplayNames: Record<UserRole, string> = {
   donor: "Investment Director",
   mental_health_professional: "Mental Health Professional",
   public: "Public User",
+};
+
+// Dashboard route per role
+const roleDashboardPaths: Record<UserRole, string> = {
+  admin: "/admin",
+  policymaker: "/policymaker-dashboard",
+  researcher: "/researcher-dashboard",
+  cso: "/cso-dashboard",
+  coordinator: "/coordinator-dashboard",
+  donor: "/donor-dashboard",
+  mental_health_professional: "/mental-health-dashboard",
+  public: "/public-dashboard",
 };
 
 // Role badges
@@ -81,7 +94,6 @@ const navigationGroups = {
       { name: "Executive Dashboard", href: "/executive-dashboard", icon: Crown },
       { name: "Admin Panel", href: "/admin", icon: Shield },
       { name: "System Health", href: "/system-health", icon: Activity },
-      { name: "Governance Alerts", href: "/governance-alerts", icon: AlertTriangle },
       { name: "Research Library", href: "/research-library", icon: Bot },
     ],
   },
@@ -148,7 +160,11 @@ const navigationGroups = {
     roles: ["admin", "donor", "researcher"],
     links: [
       { name: "Donor Dashboard", href: "/donor", icon: Award },
-      { name: "Funding Requests", href: "/funding-requests", icon: Target },
+      {
+        name: "Post Opportunity",
+        href: "/admin/opportunities",
+        icon: Briefcase,
+      },
       { name: "Research Sponsorships", href: "/research-sponsorships", icon: Briefcase },
       { name: "Impact Reports", href: "/impact-reports", icon: FileText },
       { name: "Investment Portfolio", href: "/investment-portfolio", icon: TrendingUp },
@@ -289,9 +305,16 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   // Get user initials for avatar
   const getUserInitials = () => {
     if (userName) {
-      return userName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+      return userName
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2);
     }
-    return roleDisplay.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+    // Fall back to the first letter of the role display name
+    const display = roleDisplayNames[userRole] || "User";
+    return display.charAt(0).toUpperCase();
   };
 
   return (
@@ -351,20 +374,45 @@ export default function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
 
       {/* User Role Indicator */}
       {!collapsed && (
-        <div className="mx-4 mt-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700">
+        <Link
+          href={roleDashboardPaths[userRole] || "/dashboard"}
+          className="mx-4 mt-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700 hover:border-cyan-500/40 hover:bg-slate-800 transition-all duration-200 group block"
+          title={`Go to ${roleDisplay}`}
+        >
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full ${roleBadge.bg} flex items-center justify-center`}>
+            <div className={`w-10 h-10 rounded-full ${roleBadge.bg} flex items-center justify-center shrink-0`}>
               <span className={`text-white font-bold text-sm ${roleBadge.color}`}>
                 {getUserInitials()}
               </span>
             </div>
-            <div className="flex-1">
-              <p className="text-white text-sm font-semibold truncate">{userName || roleDisplay}</p>
-              <p className={`text-xs ${roleBadge.color}`}>{roleDisplay}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-semibold truncate">
+                {userName || roleDisplay}
+              </p>
+              <p className={`text-xs ${roleBadge.color} truncate group-hover:underline`}>
+                {roleDisplay}
+              </p>
             </div>
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <div className="flex items-center gap-2 shrink-0">
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            </div>
           </div>
-        </div>
+        </Link>
+      )}
+      {collapsed && (
+        <Link
+          href={roleDashboardPaths[userRole] || "/dashboard"}
+          className="mx-2 mt-4 p-2 flex justify-center hover:bg-slate-800/60 rounded-xl transition-colors group"
+          title={`Go to ${roleDisplay}`}
+        >
+          <div className={`w-10 h-10 rounded-full ${roleBadge.bg} flex items-center justify-center relative`}>
+            <span className={`text-white font-bold text-sm ${roleBadge.color}`}>
+              {getUserInitials()}
+            </span>
+            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900"></div>
+          </div>
+        </Link>
       )}
 
       {/* Navigation */}

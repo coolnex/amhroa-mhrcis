@@ -678,10 +678,10 @@ export default function PublicPortal() {
               <div>
                 <h4 className="font-semibold mb-4">Quick Links</h4>
                 <ul className="space-y-2 text-sm text-slate-400">
-                  <li><Link href="/about" className="hover:text-cyan-400">About Us</Link></li>
+                  <li><Link href="https://www.amhroa.org/our-story/" className="hover:text-cyan-400">About Us</Link></li>
                   <li><Link href="/countries" className="hover:text-cyan-400">Country Profiles</Link></li>
                   <li><Link href="/repository" className="hover:text-cyan-400">Knowledge Repository</Link></li>
-                  <li><Link href="/careers" className="hover:text-cyan-400">Careers</Link></li>
+                  <li><Link href="https://www.amhroa.org" className="hover:text-cyan-400">Careers</Link></li>
                   <li>
                     <a 
                       href="https://chat.whatsapp.com/IZRq6U8M9Z5EJRRa1S4hgT" 
@@ -708,10 +708,10 @@ export default function PublicPortal() {
               <div>
                 <h4 className="font-semibold mb-4">Resources</h4>
                 <ul className="space-y-2 text-sm text-slate-400">
-                  <li><Link href="/publications" className="hover:text-cyan-400">Publications</Link></li>
-                  <li><Link href="/toolkits" className="hover:text-cyan-400">Policy Toolkits</Link></li>
-                  <li><Link href="/webinars" className="hover:text-cyan-400">Webinars</Link></li>
-                  <li><Link href="/faq" className="hover:text-cyan-400">FAQs</Link></li>
+                  <li><Link href="/signup" className="hover:text-cyan-400">Publications</Link></li>
+                  <li><Link href="/signup" className="hover:text-cyan-400">Policy Toolkits</Link></li>
+                  <li><Link href="https://amhroa.org/2024-conference/" className="hover:text-cyan-400">Conferences</Link></li>
+                  <li><Link href="https://amhroa.org/our-services/" className="hover:text-cyan-400">FAQs</Link></li>
                 </ul>
               </div>
               <div>
@@ -719,12 +719,12 @@ export default function PublicPortal() {
                 <ul className="space-y-2 text-sm text-slate-400">
                   <li><Link href="/privacy" className="hover:text-cyan-400">Privacy Policy</Link></li>
                   <li><Link href="/terms" className="hover:text-cyan-400">Terms of Use</Link></li>
-                  <li><Link href="/accessibility" className="hover:text-cyan-400">Accessibility</Link></li>
+                  <li><Link href="https://amhroa.org/" className="hover:text-cyan-400">Accessibility</Link></li>
                 </ul>
               </div>
             </div>
             <div className="border-t border-slate-800 mt-8 pt-8 text-center text-slate-400 text-sm">
-              <p>&copy; 2024 AMHROA. All rights reserved. Advancing Mental Health Reform Across Africa.</p>
+              <p>&copy; 2025 AMHROA. All rights reserved. Advancing Mental Health Reform Across Africa.</p>
             </div>
           </div>
         </footer>

@@ -43,6 +43,7 @@ export default function GovernanceAlertsPage() {
   const [user, setUser] = useState<any>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingAlert, setEditingAlert] = useState<Alert | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -58,25 +59,72 @@ export default function GovernanceAlertsPage() {
 
   useEffect(() => {
     checkAuth();
-    fetchAlerts();
   }, []);
 
+  useEffect(() => {
+    if (user) {
+      fetchAlerts();
+    }
+  }, [user]);
+
   const checkAuth = async () => {
-    const token = localStorage.getItem("token");
-    const userStr = localStorage.getItem("user");
+    try {
+      console.log("🔐 Governance Alerts - verifying admin clearance...");
 
-    if (!token || !userStr) {
+      const userStr = localStorage.getItem("user");
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          if (userData.role === "Admin" && userData.status === "Approved") {
+            setUser(userData);
+            return;
+          }
+        } catch {
+          localStorage.removeItem("user");
+        }
+      }
+
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user) {
+        console.log("No active session, redirecting to login.");
+        router.push("/login");
+        return;
+      }
+
+      const { data: profile, error: dbError } = await supabase
+        .from("users")
+        .select("id, full_name, email, role, status, country, assigned_country")
+        .eq("auth_user_id", session.user.id)
+        .single();
+
+      if (dbError || !profile) {
+        console.error("Profile not found:", dbError?.message);
+        router.push("/login");
+        return;
+      }
+
+      if (profile.role !== "Admin") {
+        console.warn(`🛑 Unauthorized: role ${profile.role}`);
+        router.push("/dashboard");
+        return;
+      }
+
+      if (profile.status !== "Approved") {
+        router.push("/login?message=Account pending approval");
+        return;
+      }
+
+      localStorage.setItem("user", JSON.stringify(profile));
+      setUser(profile);
+    } catch (error) {
+      console.error("checkAuth error:", error);
       router.push("/login");
-      return;
+    } finally {
+      setCheckingAuth(false);
     }
-
-    const userData = JSON.parse(userStr);
-    if (userData.role !== "Admin") {
-      router.push("/dashboard");
-      return;
-    }
-    setUser(userData);
   };
+
 
   const fetchAlerts = async () => {
     setLoading(true);
