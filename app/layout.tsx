@@ -5,6 +5,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { ChatProvider } from "@/providers/ChatProvider";
 import { Suspense } from "react";
+import OnboardingTour from "@/components/OnboardingTour";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -27,6 +28,7 @@ export default function RootLayout({
         <link rel="icon" href="/favicon.ico" sizes="any" />
       </head>
       <body className={`${inter.variable} antialiased`}>
+      <OnboardingTour />
         <Providers>
           <ChatProvider>
             <Suspense fallback={

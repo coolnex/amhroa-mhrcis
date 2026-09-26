@@ -241,7 +241,7 @@ const navigationGroups = {
   datacollection: {
     label: "DATA COLLECTION",
     icon: Database,
-    roles: ["Admin", "Policymaker", "Regional_Executive" , "admin_coordinator", "researcher", "researcher_coordinator", "cso", "cso_coordinator", "coordinator", "mental_health_professional", "mental_health_coordinator"],
+    roles: ["Admin", "Regional_Executive" , "admin_coordinator", "researcher", "researcher_coordinator", "cso", "cso_coordinator", "coordinator", "mental_health_professional", "mental_health_coordinator"],
     links: [
       { name: "Submit Report", href: "/data-collection/field-reports", icon: AlertTriangle },
       { name: "Surveys", href: "/data-collection/surveys", icon: ClipboardList },
@@ -276,7 +276,7 @@ const navigationGroups = {
   activities: {
     label: "WORKING GROUPS",
     icon: Users,
-    roles: ["Admin", "Policymaker", "Researcher", "Regional_Executive" , "Mental_Health_Professional", "Coordinator", "admin_coordinator", "policymaker_coordinator", "donor_coordinator", "researcher_coordinator", "mental_health_coordinator"],
+    roles: ["Admin","Policymaker", "Researcher", "Regional_Executive" , "Mental_Health_Professional", "Coordinator", "admin_coordinator", "policymaker_coordinator", "donor_coordinator", "researcher_coordinator", "mental_health_coordinator"],
     links: [
       { name: "All Working Groups", href: "/working-groups", icon: Users },
     ],
