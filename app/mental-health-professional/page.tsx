@@ -454,7 +454,7 @@ export default function MentalHealthProfessionalDashboard() {
       recs.push({
         text: "No active research projects. Consider starting or joining a study on mental health outcomes.",
         severity: "medium",
-        href: "/research-hub",
+        href: "/research-library",
       });
     }
 
@@ -631,7 +631,7 @@ export default function MentalHealthProfessionalDashboard() {
                 Advocacy Campaigns
               </Link>
               <Link
-                href="/research-hub"
+                href="/research-library"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-100 font-semibold hover:bg-rose-500/25 transition-colors"
               >
                 <Microscope className="w-4 h-4" />
@@ -946,7 +946,7 @@ export default function MentalHealthProfessionalDashboard() {
                     </div>
                   </div>
                   <Link
-                    href="/research-hub"
+                    href="/research-library"
                     className="text-purple-400 hover:text-purple-300 text-sm font-semibold inline-flex items-center gap-1"
                   >
                     All
