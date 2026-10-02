@@ -36,15 +36,21 @@ interface Field {
   type: string;
   required: boolean;
   options?: string[];
+
+  // For checkbox fields
+  allowOther?: boolean;
+
   placeholder?: string;
   helpText?: string;
   min?: number;
   max?: number;
   rows?: number;
+
   conditional?: {
     field: string;
     value: any;
   };
+
   visible?: boolean;
 }
 
@@ -78,6 +84,8 @@ const FIELD_TYPES = [
   { value: "textarea", label: "Long Text" },
   { value: "number", label: "Number" },
   { value: "select", label: "Dropdown" },
+  { value: "radio", label: "Single Choice (Select One)" },
+  { value: "checkbox", label: "Checkboxes / Multiple Choice" },
   { value: "boolean", label: "Yes/No" },
   { value: "rating", label: "Rating Scale" },
   { value: "date", label: "Date" },
@@ -401,73 +409,118 @@ export default function SurveyBuilderPage() {
 
     try {
       // Prepare questions from sections
-      const questions = survey.sections.map(section => ({
-        sectionTitle: section.title,
-        visible: section.visible,
-        questions: section.fields
-          .filter(f => f.visible !== false)
-          .map(field => ({
-            id: field.id,
-            label: field.label,
-            type: field.type,
-            required: field.required,
-            options: field.options,
-            placeholder: field.placeholder,
-            helpText: field.helpText,
-            min: field.min,
-            max: field.max,
-            rows: field.rows,
-            conditional: field.conditional
-          }))
-      }));
-
-      const surveyData = {
-        title: survey.title,
-        description: survey.description,
-        category: survey.category,
-        type: "internal",
-        questions: questions,
-        status: survey.status,
-        metadata: {
-          isInternal: true,
-          targetAudience: survey.targetAudience,
-          targetCountries: survey.targetCountries || [],
-          targetRoles: survey.targetRoles || [],
-          templateId: selectedTemplate,
-          startDate: survey.startDate,
-          endDate: survey.endDate,
-          createdBy: user.id,
-          type: survey.type
-        },
-        created_by: user.id,
-        updated_at: new Date().toISOString()
-      };
-
       let result;
+
       if (isEditing && survey.id) {
-        // Update existing survey
+        // UPDATE EXISTING SURVEY
+        const updateData = {
+          title: survey.title,
+          description: survey.description,
+          category: survey.category,
+          type: survey.type || "internal",
+          questions: survey.sections.map(section => ({
+            sectionTitle: section.title,
+            visible: section.visible,
+            questions: section.fields.map(field => ({
+              id: field.id,
+              label: field.label,
+              type: field.type,
+              required: field.required,
+              options: field.options,
+              placeholder: field.placeholder,
+              helpText: field.helpText,
+              min: field.min,
+              max: field.max,
+              rows: field.rows,
+              conditional: field.conditional,
+              visible: field.visible,
+            }))
+          })),
+          status: survey.status,
+          metadata: {
+            isInternal: true,
+            targetAudience: survey.targetAudience,
+            targetCountries: survey.targetCountries || [],
+            targetRoles: survey.targetRoles || [],
+            templateId: selectedTemplate || null,
+            startDate: survey.startDate || null,
+            endDate: survey.endDate || null,
+            type: survey.type || "internal"
+          },
+          updated_at: new Date().toISOString()
+        };
+
+        console.log("Updating survey:", survey.id);
+        console.log("Update data:", updateData);
+
         result = await supabase
           .from("surveys")
-          .update(surveyData)
+          .update(updateData)
           .eq("id", survey.id)
-          .select();
+          .select()
+          .single();
+
       } else {
-        // Create new survey
+        // CREATE NEW SURVEY
+        const insertData = {
+          title: survey.title,
+          description: survey.description,
+          category: survey.category,
+          type: survey.type || "internal",
+          questions: survey.sections.map(section => ({
+            sectionTitle: section.title,
+            visible: section.visible,
+            questions: section.fields.map(field => ({
+              id: field.id,
+              label: field.label,
+              type: field.type,
+              required: field.required,
+              options: field.options,
+              placeholder: field.placeholder,
+              helpText: field.helpText,
+              min: field.min,
+              max: field.max,
+              rows: field.rows,
+              conditional: field.conditional,
+              visible: field.visible,
+            }))
+          })),
+          status: survey.status || "draft",
+          metadata: {
+            isInternal: true,
+            targetAudience: survey.targetAudience,
+            targetCountries: survey.targetCountries || [],
+            targetRoles: survey.targetRoles || [],
+            templateId: selectedTemplate || null,
+            startDate: survey.startDate || null,
+            endDate: survey.endDate || null,
+            type: survey.type || "internal"
+          },
+          created_by: user.id,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
         result = await supabase
           .from("surveys")
-          .insert({
-            ...surveyData,
-            created_at: new Date().toISOString()
-          })
-          .select();
+          .insert(insertData)
+          .select()
+          .single();
       }
 
-      if (result.error) throw result.error;
+      if (result.error) {
+        console.error("SUPABASE SAVE ERROR:", result.error);
+        throw result.error;
+      }
+
+      console.log("Survey saved successfully:", result.data);
 
       setSuccess(true);
+
       setTimeout(() => {
         router.push("/admin/surveys");
-      }, 2000);
+        router.refresh();
+      }, 1000);
     } catch (err: any) {
       console.error("Error saving survey:", err);
       setError(err.message || "Failed to save survey");
@@ -551,18 +604,30 @@ export default function SurveyBuilderPage() {
               </div>
             </div>
 
-            {field.type === "select" && (
+            {["select", "radio", "checkbox"].includes(field.type) && (
               <div className="mt-2">
-                <label className="text-slate-400 text-xs block mb-1">Options (comma separated)</label>
-                <input
-                  type="text"
-                  value={field.options?.join(", ") || ""}
-                  onChange={(e) => updateField(sectionId, field.id, { 
-                    options: e.target.value.split(",").map(s => s.trim()).filter(s => s)
-                  })}
-                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm"
-                  placeholder="Option 1, Option 2, Option 3"
+                <label className="text-slate-400 text-xs block mb-1">
+                  Options (one per line)
+                </label>
+
+                <textarea
+                  value={field.options?.join("\n") || ""}
+                  onChange={(e) =>
+                    updateField(sectionId, field.id, {
+                      options: e.target.value
+                        .split("\n")
+                        .map(s => s.trim())
+                        .filter(Boolean)
+                    })
+                  }
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"
+                  rows={5}
+                  placeholder={"Mental Health\nPsychology\nPublic Health\nResearch\nPolicy & Advocacy"}
                 />
+
+                <p className="text-slate-500 text-xs mt-1">
+                  Enter one option per line.
+                </p>
               </div>
             )}
 
@@ -738,6 +803,43 @@ export default function SurveyBuilderPage() {
                               <option key={idx} value={opt}>{opt}</option>
                             ))}
                           </select>
+                        )}
+                        {field.type === "radio" && (
+                          <div className="space-y-2">
+                            {field.options?.map((opt, idx) => (
+                              <label
+                                key={idx}
+                                className="flex items-center gap-2 text-slate-300"
+                              >
+                                <input
+                                  type="radio"
+                                  name={field.id}
+                                  value={opt}
+                                  disabled
+                                  className="text-cyan-500"
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                        {field.type === "checkbox" && (
+                          <div className="space-y-2">
+                            {field.options?.map((opt, idx) => (
+                              <label
+                                key={idx}
+                                className="flex items-center gap-2 text-slate-300"
+                              >
+                                <input
+                                  type="checkbox"
+                                  value={opt}
+                                  disabled
+                                  className="rounded border-slate-600 bg-slate-700 text-cyan-500"
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            ))}
+                          </div>
                         )}
                         {field.type === "rating" && (
                           <div className="flex gap-2">

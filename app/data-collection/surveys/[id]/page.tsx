@@ -93,7 +93,14 @@ export default function SurveyFormPage() {
     let answeredQuestions = 0;
     allQuestions.forEach((q: any) => {
       const value = responses[q.id];
-      if (value !== undefined && value !== null && value !== "") {
+    
+      const hasAnswer =
+        value !== undefined &&
+        value !== null &&
+        value !== "" &&
+        !(Array.isArray(value) && value.length === 0);
+    
+      if (hasAnswer) {
         answeredQuestions++;
       }
     });
@@ -326,19 +333,31 @@ export default function SurveyFormPage() {
 
   const validateForm = () => {
     if (!survey) return false;
-    
+  
     const allQuestions = extractAllQuestions(survey.questions);
-    const requiredQuestions = allQuestions.filter((q: any) => q.required === true);
-    
-    // Check each required question
+    const requiredQuestions = allQuestions.filter(
+      (q: any) => q.required === true
+    );
+  
     for (const q of requiredQuestions) {
       const value = responses[q.id];
-      if (value === undefined || value === null || value === "") {
-        setFormError(`Please answer: ${q.label || q.text || q.question || q.id}`);
+  
+      const isEmpty =
+        value === undefined ||
+        value === null ||
+        value === "" ||
+        (Array.isArray(value) && value.length === 0);
+  
+      if (isEmpty) {
+        setFormError(
+          `Please answer: ${
+            q.label || q.text || q.question || q.id
+          }`
+        );
         return false;
       }
     }
-    
+  
     return true;
   };
 
@@ -518,7 +537,7 @@ const checkCanSubmit = async () => {
 
   const renderQuestion = useCallback(
     (question: any, sectionIndex: number, questionIndex: number) => {
-      const value = responses[question.id] || "";
+      const value = responses[question.id] ?? "";
 
       // Check conditional visibility
       if (question.conditional) {
@@ -602,7 +621,6 @@ const checkCanSubmit = async () => {
               )}
             </div>
           );
-
         case "select":
           return (
             <div key={question.id} className="mb-4">
@@ -628,6 +646,118 @@ const checkCanSubmit = async () => {
               )}
             </div>
           );
+        case "radio":
+        case "single_choice":
+        case "single-choice":
+          return (
+            <div key={question.id} className="mb-4">
+              <label className="text-slate-300 text-sm block mb-3">
+                {question.label}{" "}
+                {question.required && (
+                  <span className="text-red-400">*</span>
+                )}
+              </label>
+
+              <div className="space-y-2">
+                {(question.options || []).map(
+                  (option: string, index: number) => (
+                    <label
+                      key={`${question.id}-radio-${index}`}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition-all border ${
+                        value === option
+                          ? "bg-cyan-600/20 border-cyan-500 text-white"
+                          : "bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={question.id}
+                        value={option}
+                        checked={value === option}
+                        onChange={() =>
+                          updateField(question.id, option)
+                        }
+                        className="w-4 h-4 accent-cyan-500"
+                        required={question.required}
+                      />
+
+                      <span>{option}</span>
+                    </label>
+                  )
+                )}
+              </div>
+
+              {question.helpText && (
+                <p className="text-slate-500 text-xs mt-2">
+                  {question.helpText}
+                </p>
+              )}
+            </div>
+          );
+        case "checkbox":
+        case "multiple_choice":
+        case "multiple-choice":
+          {
+            const selectedValues: string[] = Array.isArray(value)
+              ? value
+              : [];
+
+            const toggleCheckbox = (option: string) => {
+              const updatedValues = selectedValues.includes(option)
+                ? selectedValues.filter((item) => item !== option)
+                : [...selectedValues, option];
+
+              updateField(question.id, updatedValues);
+            };
+
+            return (
+              <div key={question.id} className="mb-4">
+                <label className="text-slate-300 text-sm block mb-3">
+                  {question.label}{" "}
+                  {question.required && (
+                    <span className="text-red-400">*</span>
+                  )}
+                </label>
+
+                <div className="space-y-2">
+                  {(question.options || []).map(
+                    (option: string, index: number) => {
+                      const checked = selectedValues.includes(option);
+
+                      return (
+                        <label
+                          key={`${question.id}-checkbox-${index}`}
+                          className={`flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition-all border ${
+                            checked
+                              ? "bg-cyan-600/20 border-cyan-500 text-white"
+                              : "bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            value={option}
+                            checked={checked}
+                            onChange={() =>
+                              toggleCheckbox(option)
+                            }
+                            className="w-4 h-4 accent-cyan-500"
+                          />
+
+                          <span>{option}</span>
+                        </label>
+                      );
+                    }
+                  )}
+                </div>
+
+                {question.helpText && (
+                  <p className="text-slate-500 text-xs mt-2">
+                    {question.helpText}
+                  </p>
+                )}
+              </div>
+            );
+          }
 
         case "boolean":
           return (
@@ -719,6 +849,46 @@ const checkCanSubmit = async () => {
                 value={value}
                 onChange={(e) => updateField(question.id, e.target.value)}
                 className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-500"
+                required={question.required}
+              />
+              {question.helpText && (
+                <p className="text-slate-500 text-xs mt-1">{question.helpText}</p>
+              )}
+            </div>
+          );
+        case "email":
+          return (
+            <div key={question.id} className="mb-4">
+              <label className="text-slate-300 text-sm block mb-2">
+                {question.label}{" "}
+                {question.required && <span className="text-red-400">*</span>}
+              </label>
+              <input
+                type="email"
+                value={value}
+                onChange={(e) => updateField(question.id, e.target.value)}
+                placeholder={question.placeholder || ""}
+                className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
+                required={question.required}
+              />
+              {question.helpText && (
+                <p className="text-slate-500 text-xs mt-1">{question.helpText}</p>
+              )}
+            </div>
+          );
+        case "phone":
+          return (
+            <div key={question.id} className="mb-4">
+              <label className="text-slate-300 text-sm block mb-2">
+                {question.label}{" "}
+                {question.required && <span className="text-red-400">*</span>}
+              </label>
+              <input
+                type="tel"
+                value={value}
+                onChange={(e) => updateField(question.id, e.target.value)}
+                placeholder={question.placeholder || ""}
+                className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2.5 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
                 required={question.required}
               />
               {question.helpText && (
@@ -885,7 +1055,22 @@ const checkCanSubmit = async () => {
             {/* Survey Header */}
             <div className="text-center mb-8">
               <div className="bg-cyan-500/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Heart className="w-8 h-8 text-cyan-400" />
+              <img
+                src="./public/og-image.png"
+                alt="AMHROA Logo"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.style.display = 'none';
+                  const parent = target.parentElement;
+                  if (parent) {
+                    const fallback = document.createElement('div');
+                    fallback.className = 'w-12 h-12 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center';
+                    fallback.innerHTML = '<svg class="w-6 h-6 text-white" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>';
+                    parent.appendChild(fallback);
+                  }
+                }}
+              />
               </div>
               <h1 className="text-3xl font-bold text-white">{survey?.title}</h1>
               <p className="text-slate-400 mt-2">{survey?.description}</p>
@@ -1006,122 +1191,7 @@ const checkCanSubmit = async () => {
                       </div>
                     </div>
                   </div>
-
-                  {/* Assessment Questions */}
-                  <div className="bg-slate-700/30 rounded-xl p-6">
-                    <h2 className="text-xl font-semibold text-white mb-4">
-                      Mental Health Assessment
-                    </h2>
-
-                    <div className="space-y-6">
-                      <div>
-                        <label className="text-slate-400 text-sm block mb-3">
-                          How often have you felt stressed? *
-                        </label>
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                          {frequencyOptions.map((option) => (
-                            <label
-                              key={option}
-                              className={`flex items-center justify-center gap-2 p-2 rounded-lg cursor-pointer transition-all ${
-                                responses.stress_level === option
-                                  ? "bg-cyan-600 text-white"
-                                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name="stress_level"
-                                value={option}
-                                checked={responses.stress_level === option}
-                                onChange={(e) =>
-                                  updateField("stress_level", e.target.value)
-                                }
-                                className="hidden"
-                              />
-                              <span className="text-sm">{option}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-slate-400 text-sm block mb-3">
-                          How would you rate your mental wellbeing? *
-                        </label>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                          {wellbeingOptions.map((option) => (
-                            <label
-                              key={option}
-                              className={`flex items-center justify-center gap-2 p-2 rounded-lg cursor-pointer transition-all ${
-                                responses.wellbeing === option
-                                  ? "bg-cyan-600 text-white"
-                                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name="wellbeing"
-                                value={option}
-                                checked={responses.wellbeing === option}
-                                onChange={(e) =>
-                                  updateField("wellbeing", e.target.value)
-                                }
-                                className="hidden"
-                              />
-                              <span className="text-sm">{option}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-slate-400 text-sm block mb-3">
-                          Have you accessed mental health services? *
-                        </label>
-                        <div className="flex gap-4">
-                          {yesNoOptions.map((option) => (
-                            <label
-                              key={option}
-                              className={`flex items-center justify-center gap-2 px-6 py-2 rounded-lg cursor-pointer transition-all ${
-                                responses.accessed_services === option
-                                  ? "bg-cyan-600 text-white"
-                                  : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name="accessed_services"
-                                value={option}
-                                checked={responses.accessed_services === option}
-                                onChange={(e) =>
-                                  updateField("accessed_services", e.target.value)
-                                }
-                                className="hidden"
-                              />
-                              <span className="text-sm">{option}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Additional Comments */}
-                  <div className="bg-slate-700/30 rounded-xl p-6">
-                    <h2 className="text-xl font-semibold text-white mb-4">
-                      Additional Comments
-                    </h2>
-                    <textarea
-                      value={responses.additional_comments || ""}
-                      onChange={(e) =>
-                        updateField("additional_comments", e.target.value)
-                      }
-                      rows={4}
-                      placeholder="Please share any additional thoughts, experiences, or concerns..."
-                      className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-cyan-500"
-                    />
-                  </div>
-                </>
+                  </>
               )}
 
               {/* Privacy Notice */}

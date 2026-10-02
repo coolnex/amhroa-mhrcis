@@ -26,7 +26,6 @@ import {
   ChevronRight,
   Loader2,
   AlertCircle,
-  LogOut,
 } from "lucide-react";
 
 interface Survey {
@@ -125,16 +124,6 @@ export default function AdminSurveysPage() {
       router.push("/login");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const logout = async () => {
-    try {
-      localStorage.removeItem("user");
-      await supabase.auth.signOut();
-      router.push("/login");
-    } catch (error) {
-      console.error("Logout error:", error);
     }
   };
 
@@ -269,13 +258,7 @@ export default function AdminSurveysPage() {
               <ArrowLeft className="w-4 h-4" />
               Back to Admin
             </Link>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="text-sm hidden sm:inline">Logout</span>
-            </button>
+            
           </div>
 
           <div className="flex justify-between items-start flex-wrap gap-4">

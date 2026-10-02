@@ -25,7 +25,6 @@ import {
   Zap,
   ArrowLeft,
   RefreshCw,
-  LogOut,
 } from "lucide-react";
 
 interface SurveyWithStats {
@@ -128,16 +127,6 @@ export default function AdminSurveyResultsPage() {
       router.push("/login");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const logout = async () => {
-    try {
-      localStorage.removeItem("user");
-      await supabase.auth.signOut();
-      router.push("/login");
-    } catch (error) {
-      console.error("Logout error:", error);
     }
   };
 
@@ -279,13 +268,6 @@ export default function AdminSurveyResultsPage() {
               <ArrowLeft className="w-4 h-4" />
               Back to Surveys
             </Link>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 rounded-xl border border-red-500/30 text-red-400 transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="text-sm hidden sm:inline">Logout</span>
-            </button>
           </div>
 
           <div className="flex flex-wrap justify-between items-start gap-4">
